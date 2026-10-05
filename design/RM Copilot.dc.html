@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/industry-8b64b15e-3f70-401a-9b10-dd55dcacf21d/styles.css">
+</helmet>
+<div style="display:flex;height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);overflow:hidden">
+
+  <div style="width:230px;flex:none;border-right:1px solid var(--color-divider);display:flex;flex-direction:column;padding:var(--space-4);gap:var(--space-6)">
+    <div>
+      <h2 style="margin:0;font-size:20px">Northbridge</h2>
+      <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-accent-700)">RM Co-pilot</div>
+    </div>
+
+    <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="5">
+      <button onClick="{{ item.onClick }}" style="display:block;width:100%;text-align:left;font-family:var(--font-heading);font-size:14px;cursor:pointer;padding:var(--space-2) var(--space-3);border:1px solid transparent;border-radius:var(--radius-md);margin-bottom:2px;background:{{ item.bg }};color:{{ item.color }}">{{ item.label }}</button>
+    </sc-for>
+  </div>
+
+  <div style="flex:1;overflow-y:auto;padding:var(--space-8)">
+
+    <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}">
+      <div>
+        <h1 style="margin-bottom:4px">Dashboard</h1>
+        <p class="text-muted" style="margin-bottom:var(--space-6)">{{ flaggedCount }} clients flagged for attention this week</p>
+
+        <div style="display:flex;gap:var(--space-4);align-items:center;margin-bottom:var(--space-4);flex-wrap:wrap">
+          <div class="seg">
+            <sc-for list="{{ filterOptions }}" as="f" hint-placeholder-count="3">
+              <label class="seg-opt">
+                <input type="radio" name="filter" checked="{{ f.checked }}" onChange="{{ f.onSelect }}"></input>
+                {{ f.label }}
+              </label>
+            </sc-for>
+          </div>
+          <input class="input" style="max-width:260px" placeholder="Search by client or industry" value="{{ search }}" onChange="{{ onSearchChange }}"></input>
+        </div>
+
+        <div class="card blueprint elev-sm" style="padding:0">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <table class="table">
+            <thead>
+              <tr><th>Rank</th><th>Client</th><th>Industry</th><th>Flag</th><th></th></tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ rankedClients }}" as="c" hint-placeholder-count="6">
+                <tr>
+                  <td style="font-family:var(--font-heading)">{{ c.rank }}</td>
+                  <td>{{ c.name }}<div class="text-muted" style="font-size:11px">{{ c.city }}</div></td>
+                  <td>{{ c.industry }}</td>
+                  <td class="text-muted" style="font-size:12px;max-width:260px">{{ c.reason }}</td>
+                  <td><button class="btn btn-ghost" onClick="{{ c.onView }}">View →</button></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:var(--space-6)">
+        <div style="width:240px;flex:none">
+          <input class="input" style="margin-bottom:var(--space-3)" placeholder="Search merchants" value="{{ analyticsSearch }}" onChange="{{ onAnalyticsSearchChange }}"></input>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <sc-for list="{{ analyticsClientList }}" as="m" hint-placeholder-count="6">
+              <button onClick="{{ m.onClick }}" style="text-align:left;cursor:pointer;padding:var(--space-2) var(--space-3);border:1px solid var(--color-divider);border-radius:var(--radius-md);background:{{ m.bg }};color:{{ m.color }}">
+                <div style="font-size:14px;font-family:var(--font-heading)">{{ m.name }}</div>
+                <div class="text-muted" style="font-size:11px">{{ m.industry }}</div>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-6)">
+          <div>
+            <h1 style="margin-bottom:4px">{{ selectedClient.name }}</h1>
+            <div style="display:flex;gap:var(--space-2);align-items:center">
+              <span class="tag tag-outline">{{ selectedClient.industry }}</span>
+              <span class="text-muted" style="font-size:13px">{{ selectedClient.city }}</span>
+            </div>
+          </div>
+          <button class="btn btn-secondary" onClick="{{ goDashboard }}">← Back to dashboard</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-bottom:var(--space-6)">
+          <div class="card blueprint elev-sm">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="card-kicker">Card &amp; POS</div>
+            <div style="display:flex;flex-direction:column;gap:var(--space-2);font-size:14px">
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">Card no.</span><span>{{ selectedClient.cardNo }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">Card type</span><span>{{ selectedClient.cardType }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">Monthly POS limit</span><span>{{ selectedClient.monthlyLimitFmt }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">Daily POS limit</span><span>{{ selectedClient.dailyLimitFmt }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">POS volume / mo</span><span>{{ selectedClient.volumeFmt }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">POS frequency / mo</span><span>{{ selectedClient.freqFmt }}</span></div>
+            </div>
+          </div>
+
+          <div class="card blueprint elev-sm">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="card-kicker">Profile &amp; behavior</div>
+            <div style="display:flex;flex-direction:column;gap:var(--space-2);font-size:14px;margin-bottom:var(--space-2)">
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">Balance</span><span>{{ selectedClient.balanceFmt }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">Behavior / risk</span><span>{{ selectedClient.risk }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span class="text-muted">Segment</span><span>{{ selectedClient.segment }}</span></div>
+            </div>
+            <div class="card-kicker" style="margin-top:var(--space-2)">Existing products</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ selectedClient.products }}" as="p" hint-placeholder-count="2">
+                <span class="tag tag-neutral">{{ p }}</span>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-6)">
+          <button class="btn btn-secondary" onClick="{{ goSuggestions }}">View suggestions</button>
+          <button class="btn btn-primary" onClick="{{ goCopilot }}">Ask co-pilot about this client</button>
+        </div>
+
+        <div class="card blueprint elev-sm" style="margin-bottom:var(--space-4)">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div class="card-kicker">Rate suggestion</div>
+          <div style="display:flex;gap:var(--space-8);align-items:baseline;margin:var(--space-2) 0">
+            <div><div class="text-muted" style="font-size:11px">Current</div><div style="font-family:var(--font-heading);font-size:28px">{{ selectedClient.rate.currentLabel }}</div></div>
+            <div style="font-size:20px;color:var(--color-accent)">→</div>
+            <div><div class="text-muted" style="font-size:11px">Suggested</div><div style="font-family:var(--font-heading);font-size:28px;color:var(--color-accent-700)">{{ selectedClient.rate.suggestedLabel }}</div></div>
+          </div>
+          <p class="card-body">{{ selectedClient.rate.rationale }}</p>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:var(--space-4)">
+          <div class="card blueprint elev-sm">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="card-kicker">Volume tracking (6 mo, AED k)</div>
+            <div style="display:flex;align-items:flex-end;gap:var(--space-3);height:150px;margin-top:var(--space-3)">
+              <sc-for list="{{ selectedClient.volumeBars }}" as="bar" hint-placeholder-count="6">
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end">
+                  <div class="text-muted" style="font-size:10px">{{ bar.valueLabel }}</div>
+                  <div style="width:100%;background:var(--color-accent-500);height:{{ bar.heightPct }}%"></div>
+                  <div class="text-muted" style="font-size:11px">{{ bar.month }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div class="card blueprint elev-sm">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="card-kicker">Card mix analysis</div>
+            <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-2)">
+              <sc-for list="{{ selectedClient.cardMix }}" as="mix" hint-placeholder-count="3">
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px"><span>{{ mix.type }}</span><span class="text-muted">{{ mix.freq }} txns</span></div>
+                  <div style="height:8px;background:var(--color-surface);border:1px solid var(--color-divider)">
+                    <div style="height:100%;width:{{ mix.pct }}%;background:var(--color-accent)"></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isSuggestions }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <h1 style="margin-bottom:4px">Suggestions</h1>
+        <p class="text-muted" style="margin-bottom:var(--space-6)">Top 5 merchants to pitch — lending and new-to-bank cross-sell</p>
+
+        <div class="card blueprint elev-sm" style="padding:0">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <table class="table">
+            <thead>
+              <tr><th>Rank</th><th>Merchant</th><th>Recommended product</th><th>Why</th><th></th></tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ topSuggestions }}" as="t" hint-placeholder-count="5">
+                <tr>
+                  <td style="font-family:var(--font-heading)">{{ t.rank }}</td>
+                  <td>{{ t.name }}<div class="text-muted" style="font-size:11px">{{ t.industry }}</div></td>
+                  <td><span class="tag tag-accent">{{ t.product }}</span></td>
+                  <td class="text-muted" style="font-size:12px;max-width:340px">{{ t.explanation }}</td>
+                  <td><button class="btn btn-ghost" onClick="{{ t.onView }}">Co-pilot →</button></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isCopilot }}" hint-placeholder-val="{{ false }}">
+      <div>
+        <sc-if value="{{ isCopilotGeneral }}" hint-placeholder-val="{{ true }}">
+          <h1 style="margin-bottom:4px">Co-pilot</h1>
+          <p class="text-muted" style="margin-bottom:var(--space-6)">Ask about any client across the portfolio</p>
+        </sc-if>
+        <sc-if value="{{ isCopilotMerchant }}" hint-placeholder-val="{{ false }}">
+          <h1 style="margin-bottom:4px">Co-pilot — {{ selectedClient.name }}</h1>
+          <p class="text-muted" style="margin-bottom:var(--space-6)">Scoped to this merchant only</p>
+        </sc-if>
+
+        <div style="max-width:720px">
+
+          <sc-if value="{{ isCopilotGeneral }}" hint-placeholder-val="{{ true }}">
+            <div class="card blueprint elev-sm" style="display:flex;flex-direction:column;height:520px;padding:0">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div style="flex:1;overflow-y:auto;padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)">
+                <sc-for list="{{ generalChatMessages }}" as="msg" hint-placeholder-count="2">
+                  <div style="display:flex;justify-content:{{ msg.justify }}">
+                    <div style="max-width:78%;padding:var(--space-2) var(--space-3);font-size:14px;line-height:1.45;background:{{ msg.bg }};color:{{ msg.color }};border:1px solid var(--color-divider)">{{ msg.text }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding:var(--space-3);border-top:1px solid var(--color-divider)">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:var(--space-2)">
+                  <sc-for list="{{ generalPromptChips }}" as="chip" hint-placeholder-count="3">
+                    <button class="tag tag-outline" style="cursor:pointer;border-width:1px" onClick="{{ chip.onClick }}">{{ chip.label }}</button>
+                  </sc-for>
+                </div>
+                <div style="display:flex;gap:var(--space-2)">
+                  <input class="input" placeholder="Ask about any client…" value="{{ generalChatInput }}" onChange="{{ onGeneralChatInputChange }}" onKeyDown="{{ onGeneralChatKeyDown }}"></input>
+                  <button class="btn btn-primary" onClick="{{ sendGeneralChat }}">Send</button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isCopilotMerchant }}" hint-placeholder-val="{{ false }}">
+            <div class="card blueprint elev-sm" style="display:flex;flex-direction:column;height:520px;padding:0">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div style="flex:1;overflow-y:auto;padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)">
+                <sc-for list="{{ chatMessages }}" as="msg" hint-placeholder-count="2">
+                  <div style="display:flex;justify-content:{{ msg.justify }}">
+                    <div style="max-width:78%;padding:var(--space-2) var(--space-3);font-size:14px;line-height:1.45;background:{{ msg.bg }};color:{{ msg.color }};border:1px solid var(--color-divider)">{{ msg.text }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="padding:var(--space-3);border-top:1px solid var(--color-divider)">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:var(--space-2)">
+                  <sc-for list="{{ promptChips }}" as="chip" hint-placeholder-count="3">
+                    <button class="tag tag-outline" style="cursor:pointer;border-width:1px" onClick="{{ chip.onClick }}">{{ chip.label }}</button>
+                  </sc-for>
+                </div>
+                <div style="display:flex;gap:var(--space-2)">
+                  <input class="input" placeholder="Ask about this client…" value="{{ chatInput }}" onChange="{{ onChatInputChange }}" onKeyDown="{{ onChatKeyDown }}"></input>
+                  <button class="btn btn-primary" onClick="{{ sendChat }}">Send</button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const CLIENTS = [
+  { id:'c1', name:'Aurelia Retail Group', city:'Dubai', industry:'Fashion Retail', segment:'SME',
+    cardNo:'•••• 4471', cardType:'Visa Business', monthlyLimit:850000, dailyLimit:60000,
+    volume:612400, freq:3180, balance:1240000, risk:'Medium',
+    products:['Merchant Acquiring','Current Account'],
+    score:82, reason:'Nearing monthly POS limit — rate renegotiation window',
+    volumeTrend:[410,455,498,540,585,612],
+    cardMix:[{type:'Visa Business',pct:64,freq:2040},{type:'Visa Debit',pct:26,freq:826},{type:'Mastercard',pct:10,freq:314}],
+    rate:{current:'2.35%',suggested:'2.15%',rationale:'Volume growth of 49% over 6 months qualifies for tier-2 pricing.'},
+    lending:[{title:'Working capital facility',detail:'Seasonal inventory financing ahead of Q4 peak.',value:'AED 500,000'},
+             {title:'POS limit increase',detail:'Raise daily limit to AED 90,000 to match observed peak-day volume.',value:'—'}],
+    ntb:[{title:'FX hedging',detail:'Frequent supplier payments in EUR/USD.'},
+         {title:'Payroll account',detail:'18 employees currently paid via a third-party provider.'}] },
+  { id:'c2', name:'Sable & Co. Hospitality', city:'Abu Dhabi', industry:'Hospitality', segment:'Corporate',
+    cardNo:'•••• 2209', cardType:'Visa Corporate', monthlyLimit:2200000, dailyLimit:180000,
+    volume:1840600, freq:9420, balance:3560000, risk:'Low',
+    products:['Merchant Acquiring','Trade Finance','FX'],
+    score:74, reason:'High-value NTB cross-sell opportunity — no lending facility on file',
+    volumeTrend:[1510,1602,1688,1745,1790,1840],
+    cardMix:[{type:'Visa Corporate',pct:58,freq:5464},{type:'Visa Business',pct:31,freq:2920},{type:'Amex',pct:11,freq:1036}],
+    rate:{current:'1.95%',suggested:'1.85%',rationale:'Top-decile volume tier across the portfolio.'},
+    lending:[{title:'Term loan — property refurbishment',detail:'Two properties due for a renovation cycle in FY27.',value:'AED 4,200,000'}],
+    ntb:[{title:'Trade finance line',detail:'Frequent import payments to F&B suppliers.'},
+         {title:'Corporate credit card program',detail:'32 staff cards currently issued by a competitor bank.'}] },
+  { id:'c3', name:'Northline Motors', city:'Sharjah', industry:'Automotive', segment:'Corporate',
+    cardNo:'•••• 7783', cardType:'Visa Business', monthlyLimit:1100000, dailyLimit:95000,
+    volume:340200, freq:640, balance:890000, risk:'High',
+    products:['Merchant Acquiring'],
+    score:91, reason:'Volume down 38% in 3 months — churn risk flag',
+    volumeTrend:[548,502,470,420,378,340],
+    cardMix:[{type:'Visa Business',pct:80,freq:512},{type:'Visa Debit',pct:20,freq:128}],
+    rate:{current:'2.40%',suggested:'2.40%',rationale:'No change recommended — a retention call is advised before any pricing action.'},
+    lending:[{title:'Relationship review call',detail:'Declining volume suggests a possible switch to a competitor acquirer.',value:'—'}],
+    ntb:[{title:'Inventory financing',detail:'Vehicle stock financing could offset the cash flow gap.'}] },
+  { id:'c4', name:'Verdant Foods Trading', city:'Dubai', industry:'F&B Distribution', segment:'SME',
+    cardNo:'•••• 5561', cardType:'Visa Debit', monthlyLimit:400000, dailyLimit:35000,
+    volume:298700, freq:1860, balance:210000, risk:'Medium',
+    products:['Current Account'],
+    score:68, reason:'No merchant acquiring facility despite consistent POS volume',
+    volumeTrend:[240,255,268,278,289,298],
+    cardMix:[{type:'Visa Debit',pct:100,freq:1860}],
+    rate:{current:'—',suggested:'2.25%',rationale:'Eligible for acquiring facility onboarding at the standard SME tier.'},
+    lending:[{title:'Merchant acquiring onboarding',detail:'Six months of consistent volume growth supports an acquiring facility.',value:'—'}],
+    ntb:[{title:'Supply chain financing',detail:'Multiple recurring supplier payments identified.'}] },
+  { id:'c5', name:'Kestrel Electronics', city:'Dubai', industry:'Electronics Retail', segment:'SME',
+    cardNo:'•••• 9042', cardType:'Visa Business', monthlyLimit:720000, dailyLimit:55000,
+    volume:505300, freq:2410, balance:640000, risk:'Low',
+    products:['Merchant Acquiring','Current Account','FX'],
+    score:55, reason:'Stable account — quarterly check-in due',
+    volumeTrend:[470,480,492,498,501,505],
+    cardMix:[{type:'Visa Business',pct:70,freq:1687},{type:'Mastercard',pct:30,freq:723}],
+    rate:{current:'2.10%',suggested:'2.10%',rationale:'Pricing is already at the optimal tier for this volume band.'},
+    lending:[{title:'Equipment financing',detail:'Store refurbishment cycle due across two locations.',value:'AED 350,000'}],
+    ntb:[{title:'POS terminal insurance',detail:'No terminal insurance currently on file.'}] },
+  { id:'c6', name:'Anchor Build Contracting', city:'Abu Dhabi', industry:'Construction', segment:'Corporate',
+    cardNo:'•••• 3318', cardType:'Visa Corporate', monthlyLimit:1600000, dailyLimit:130000,
+    volume:980400, freq:1120, balance:2150000, risk:'Medium',
+    products:['Merchant Acquiring','Trade Finance'],
+    score:61, reason:'Large idle balance — deepening opportunity',
+    volumeTrend:[860,890,910,940,960,980],
+    cardMix:[{type:'Visa Corporate',pct:90,freq:1008},{type:'Visa Business',pct:10,freq:112}],
+    rate:{current:'2.05%',suggested:'1.95%',rationale:'Volume qualifies for the next pricing tier.'},
+    lending:[{title:'Treasury / fixed deposit placement',detail:'AED 2.1M average idle balance over the last 90 days.',value:'AED 2,150,000'}],
+    ntb:[{title:'Performance bonds & guarantees',detail:'Active in government contract tenders.'}] },
+];
+
+const MONTHS = ['Apr','May','Jun','Jul','Aug','Sep'];
+const NAV = [
+  {key:'dashboard', label:'Dashboard'},
+  {key:'profile', label:'Profile & analytics'},
+  {key:'suggestions', label:'Suggestions'},
+  {key:'copilot', label:'Co-pilot'},
+];
+const CHIPS = ['Summarize this client', 'Any risk flags?', "What's the best cross-sell?", 'Rate recommendation?'];
+
+function fmtAed(n){ return 'AED ' + Math.round(n).toLocaleString('en-US'); }
+
+class Component extends DCLogic {
+  state = {
+    activeView: 'dashboard',
+    selectedClientId: 'c1',
+    filter: 'all',
+    search: '',
+    analyticsSearch: '',
+    accepted: {},
+    chatByClient: {},
+    chatInput: '',
+    copilotMode: 'general',
+    generalChat: [],
+    generalChatInput: '',
+  };
+
+  setView(v, copilotMode){ this.setState(copilotMode ? { activeView: v, copilotMode } : { activeView: v }); }
+  selectClient(id){ this.setState({ selectedClientId: id }); }
+
+  botReply(client, text){
+    const t = (text || '').toLowerCase();
+    if (t.indexOf('risk') !== -1) return client.name + ' carries ' + client.risk.toLowerCase() + ' risk. Flag: ' + client.reason + '.';
+    if (t.indexOf('cross') !== -1 || t.indexOf('sell') !== -1) return 'Top cross-sell recs: ' + client.ntb.map(function(n){return n.title;}).join(', ') + '.';
+    if (t.indexOf('lend') !== -1 || t.indexOf('loan') !== -1 || t.indexOf('facilit') !== -1) return client.lending.map(function(l){return l.title + ' (' + l.value + ')';}).join('; ') + '.';
+    if (t.indexOf('rate') !== -1 || t.indexOf('pricing') !== -1) return 'Current rate ' + client.rate.current + ' → suggested ' + client.rate.suggested + '. ' + client.rate.rationale;
+    if (t.indexOf('summar') !== -1 || t.indexOf('profile') !== -1) return client.name + ' is a ' + client.segment + ' ' + client.industry + ' account in ' + client.city + ' with ' + fmtAed(client.balance) + ' balance and ' + fmtAed(client.volume) + ' monthly POS volume. ' + client.reason + '.';
+    return 'Based on 6 months of POS and account history for ' + client.name + ': ' + fmtAed(client.volume) + ' monthly volume, ' + client.risk.toLowerCase() + ' risk, and ' + client.lending.length + ' open lending suggestion(s). Ask about risk, rate, or cross-sell for more.';
+  }
+
+  sendText(text){
+    const clientId = this.state.selectedClientId;
+    const client = CLIENTS.find(function(c){return c.id===clientId;});
+    const existing = this.state.chatByClient[clientId] || [];
+    const updated = existing.concat([{ role:'user', text: text }, { role:'bot', text: this.botReply(client, text) }]);
+    const map = Object.assign({}, this.state.chatByClient);
+    map[clientId] = updated;
+    this.setState({ chatByClient: map, chatInput: '' });
+  }
+
+  generalBotReply(text){
+    const t = (text || '').toLowerCase();
+    const flagged = CLIENTS.filter((c) => c.score >= 70);
+    if (t.indexOf('flag') !== -1 || t.indexOf('attention') !== -1) return flagged.length + ' clients flagged for attention: ' + flagged.map((c) => c.name).join(', ') + '.';
+    if (t.indexOf('risk') !== -1) return CLIENTS.filter((c) => c.risk === 'High').map((c) => c.name).join(', ') + ' carry high risk.';
+    if (t.indexOf('lend') !== -1 || t.indexOf('loan') !== -1) return 'Lending opportunities across the portfolio: ' + CLIENTS.map((c) => c.name + ' (' + c.lending[0].title + ')').join('; ') + '.';
+    if (t.indexOf('cross') !== -1 || t.indexOf('ntb') !== -1) return 'Top NTB cross-sell candidates: ' + CLIENTS.map((c) => c.name + ' — ' + c.ntb[0].title).join('; ') + '.';
+    if (t.indexOf('portfolio') !== -1 || t.indexOf('summar') !== -1) return 'Portfolio of ' + CLIENTS.length + ' clients across ' + new Set(CLIENTS.map((c) => c.industry)).size + ' industries. ' + flagged.length + ' flagged for attention this week.';
+    return 'I can answer questions across the full client portfolio — try asking about flagged clients, risk, lending opportunities, or cross-sell candidates. For a specific merchant, open their profile and use that client\u2019s co-pilot.';
+  }
+
+  sendGeneralText(text){
+    const existing = this.state.generalChat;
+    const updated = existing.concat([{ role:'user', text: text }, { role:'bot', text: this.generalBotReply(text) }]);
+    this.setState({ generalChat: updated, generalChatInput: '' });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const clients = CLIENTS.map(function(c){
+      return Object.assign({}, c, {
+        watchlist: c.score >= 70,
+      });
+    });
+
+    const filtered = clients.filter((c) => {
+      const matchesFilter = s.filter === 'all' || (s.filter === 'high' && c.risk === 'High') || (s.filter === 'opp' && c.watchlist);
+      const q = s.search.toLowerCase();
+      const matchesSearch = !q || c.name.toLowerCase().indexOf(q) !== -1 || c.industry.toLowerCase().indexOf(q) !== -1;
+      return matchesFilter && matchesSearch;
+    }).sort((a,b) => b.score - a.score);
+
+    const riskColor = (risk) => {
+      if (risk === 'High') return { bg:'var(--color-accent-800)', color:'var(--color-bg)' };
+      if (risk === 'Medium') return { bg:'var(--color-accent-100)', color:'var(--color-accent-800)' };
+      return { bg:'var(--color-neutral-100)', color:'var(--color-neutral-800)' };
+    };
+
+    const rankedClients = filtered.map((c, i) => ({
+      rank: i+1, id: c.id, name: c.name, city: c.city, industry: c.industry,
+      risk: c.risk, riskTag: riskColor(c.risk), score: c.score, reason: c.reason,
+      onView: () => { this.selectClient(c.id); this.setView('profile'); },
+    }));
+
+    const selRaw = CLIENTS.find((c) => c.id === s.selectedClientId) || CLIENTS[0];
+    const maxVol = Math.max.apply(null, selRaw.volumeTrend);
+    const acceptedMap = s.accepted;
+
+    const mkSuggestion = (kind, idx, item) => {
+      const key = selRaw.id + '-' + kind + '-' + idx;
+      return {
+        title: item.title, detail: item.detail, value: item.value || '',
+        accepted: !!acceptedMap[key], notAccepted: !acceptedMap[key],
+        onAccept: () => { const m = Object.assign({}, acceptedMap); m[key] = true; this.setState({ accepted: m }); },
+      };
+    };
+
+    const selectedClient = {
+      name: selRaw.name, city: selRaw.city, industry: selRaw.industry, segment: selRaw.segment,
+      cardNo: selRaw.cardNo, cardType: selRaw.cardType,
+      monthlyLimitFmt: fmtAed(selRaw.monthlyLimit), dailyLimitFmt: fmtAed(selRaw.dailyLimit),
+      volumeFmt: fmtAed(selRaw.volume), freqFmt: selRaw.freq.toLocaleString('en-US') + ' txns',
+      balanceFmt: fmtAed(selRaw.balance), risk: selRaw.risk, products: selRaw.products,
+      rate: { currentLabel: selRaw.rate.current, suggestedLabel: selRaw.rate.suggested, rationale: selRaw.rate.rationale },
+      volumeBars: selRaw.volumeTrend.map((v,i) => ({ month: MONTHS[i], heightPct: Math.round(v/maxVol*100), valueLabel: v })),
+      cardMix: selRaw.cardMix.map((m) => ({ type: m.type, pct: m.pct, freq: m.freq.toLocaleString('en-US') })),
+      lending: selRaw.lending.map((l,i) => mkSuggestion('l', i, l)),
+      ntb: selRaw.ntb.map((n,i) => mkSuggestion('n', i, n)),
+      summaryBullets: [
+        selRaw.segment + ' ' + selRaw.industry + ' client in ' + selRaw.city + ', holding ' + fmtAed(selRaw.balance) + '.',
+        'Monthly POS volume ' + fmtAed(selRaw.volume) + ' across ' + selRaw.freq.toLocaleString('en-US') + ' transactions.',
+        'Behavior flagged ' + selRaw.risk.toLowerCase() + ' risk — ' + selRaw.reason.toLowerCase() + '.',
+        'Existing products: ' + (selRaw.products.join(', ') || 'none on file') + '.',
+      ],
+    };
+
+    const navItems = NAV.map((n) => ({
+      key: n.key, label: n.label,
+      bg: s.activeView === n.key ? 'var(--color-accent-100)' : 'transparent',
+      color: s.activeView === n.key ? 'var(--color-accent-800)' : 'var(--color-text)',
+      onClick: () => this.setView(n.key, n.key === 'copilot' ? 'general' : undefined),
+    }));
+
+    const filterOptions = [
+      { label:'All', checked: s.filter==='all', onSelect: () => this.setState({filter:'all'}) },
+      { label:'Opportunities', checked: s.filter==='opp', onSelect: () => this.setState({filter:'opp'}) },
+    ];
+
+    const chatList = (s.chatByClient[selRaw.id] || []).map((m) => ({
+      text: m.text, justify: m.role === 'user' ? 'flex-end' : 'flex-start',
+      bg: m.role === 'user' ? 'var(--color-accent)' : 'var(--color-surface)',
+      color: m.role === 'user' ? 'var(--color-bg)' : 'var(--color-text)',
+    }));
+
+    const promptChips = CHIPS.map((label) => ({ label, onClick: () => this.sendText(label) }));
+
+    const topSuggestions = clients.slice().sort((a,b) => b.score - a.score).slice(0,5).map((c, i) => {
+      const hasLending = c.lending.length > 0;
+      const rec = hasLending ? c.lending[0] : c.ntb[0];
+      return {
+        rank: i+1, name: c.name, industry: c.industry,
+        product: (hasLending ? 'Lending — ' : 'Cross-sell — ') + rec.title,
+        explanation: rec.detail,
+        onView: () => { this.selectClient(c.id); this.setView('copilot', 'merchant'); },
+      };
+    });
+
+    const aq = s.analyticsSearch.toLowerCase();
+    const analyticsClientList = clients
+      .filter((c) => !aq || c.name.toLowerCase().indexOf(aq) !== -1 || c.industry.toLowerCase().indexOf(aq) !== -1)
+      .map((c) => ({
+        name: c.name, industry: c.industry,
+        bg: c.id === selRaw.id ? 'var(--color-accent-100)' : 'transparent',
+        color: c.id === selRaw.id ? 'var(--color-accent-800)' : 'var(--color-text)',
+        onClick: () => this.selectClient(c.id),
+      }));
+
+    return {
+      navItems, isDashboard: s.activeView==='dashboard', isProfile: s.activeView==='profile',
+      isSuggestions: s.activeView==='suggestions', isCopilot: s.activeView==='copilot',
+      clientOptions: clients.map((c) => ({ id: c.id, name: c.name })),
+      selectedClientId: s.selectedClientId,
+      onSelectClient: (e) => this.selectClient(e.target.value),
+      flaggedCount: clients.filter((c) => c.watchlist).length,
+      filterOptions, search: s.search, onSearchChange: (e) => this.setState({ search: e.target.value }),
+      rankedClients,
+      selectedClient,
+      goDashboard: () => this.setView('dashboard'),
+      goSuggestions: () => this.setView('suggestions'),
+      goCopilot: () => this.setView('copilot', 'merchant'),
+      isCopilotGeneral: s.copilotMode === 'general',
+      isCopilotMerchant: s.copilotMode === 'merchant',
+      chatMessages: chatList, chatInput: s.chatInput,
+      onChatInputChange: (e) => this.setState({ chatInput: e.target.value }),
+      onChatKeyDown: (e) => { if (e.key === 'Enter' && s.chatInput.trim()) this.sendText(s.chatInput.trim()); },
+      sendChat: () => { if (s.chatInput.trim()) this.sendText(s.chatInput.trim()); },
+      promptChips,
+      generalChatMessages: s.generalChat.map((m) => ({
+        text: m.text, justify: m.role === 'user' ? 'flex-end' : 'flex-start',
+        bg: m.role === 'user' ? 'var(--color-accent)' : 'var(--color-surface)',
+        color: m.role === 'user' ? 'var(--color-bg)' : 'var(--color-text)',
+      })),
+      generalChatInput: s.generalChatInput,
+      onGeneralChatInputChange: (e) => this.setState({ generalChatInput: e.target.value }),
+      onGeneralChatKeyDown: (e) => { if (e.key === 'Enter' && s.generalChatInput.trim()) this.sendGeneralText(s.generalChatInput.trim()); },
+      sendGeneralChat: () => { if (s.generalChatInput.trim()) this.sendGeneralText(s.generalChatInput.trim()); },
+      generalPromptChips: ['Which clients are flagged?', 'Lending opportunities?', 'Cross-sell candidates?', 'Portfolio summary'].map((label) => ({ label, onClick: () => this.sendGeneralText(label) })),
+      analyticsSearch: s.analyticsSearch,
+      onAnalyticsSearchChange: (e) => this.setState({ analyticsSearch: e.target.value }),
+      analyticsClientList,
+      topSuggestions,
+    };
+  }
+}
+</script>
+</body>
+</html>

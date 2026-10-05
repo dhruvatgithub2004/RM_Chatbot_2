@@ -1,0 +1,25 @@
+# NeMo Guardrails configuration for the RM Co-pilots (portfolio chat and merchant chat).
+#
+# Input rails run on the RM's question before the main model is called; output rails run on the model's answer before the RM sees it.
+# The main model is NOT defined here: app/guardrails.py hands NeMo an adapter around the app's own LLM call (llm.complete), so the
+# rails use whichever model the app is configured with (OpenAI today, a local model later).
+#
+#   check decision boundary  deterministic (app/guard_rules.py)  The co-pilot recommends; it does not approve, send or change anything.
+#   self check input         LLM-based policy check (prompts.yml) Jailbreak / prompt-injection / abuse screening of the question.
+#   check grounding          deterministic (app/guard_rules.py)   The answer must agree with the data (named clients, risk, dormancy,
+#                                                                 rates, products, no claimed actions or guarantees).
+#   self check output        LLM-based policy check (prompts.yml) Tone, promises and leakage of internal instructions.
+#
+# The hard guarantees are the deterministic rails. The LLM-based rails are an extra layer and can be switched off
+# with GUARDRAILS_LLM_CHECKS=0 (see .env.example).
+colang_version: "1.0"
+
+rails:
+  input:
+    flows:
+      - check decision boundary
+      - self check input
+  output:
+    flows:
+      - check grounding
+      - self check output

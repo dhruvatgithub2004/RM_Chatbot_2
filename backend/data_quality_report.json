@@ -1,0 +1,53 @@
+{
+  "as_of_date": "2026-08-03",
+  "clients_loaded": 150,
+  "pos_rows_loaded": 36000,
+  "products_held_rows": 656,
+  "ntb_candidate_rows": 89,
+  "quarantined": 0,
+  "warning_types": [
+    "duplicate_business_name",
+    "limits_not_consistent",
+    "risk_segment_not_monotonic_with_score",
+    "suggested_rate_set_when_no_change",
+    "working_capital_below_minimum_facility"
+  ],
+  "issues": [
+    {
+      "severity": "warning",
+      "source": "merchant",
+      "code": "duplicate_business_name",
+      "detail": "Hardy Style Co: MER2108, MER2131; Johnson Technologies: MER2077, MER2091",
+      "row_ref": null
+    },
+    {
+      "severity": "warning",
+      "source": "merchant",
+      "code": "limits_not_consistent",
+      "detail": "daily_pos_limit x 30 / monthly_pos_limit ranges 1.88-3.09; limits are independent",
+      "row_ref": null
+    },
+    {
+      "severity": "warning",
+      "source": "merchant",
+      "code": "risk_segment_not_monotonic_with_score",
+      "detail": "risk_segment overlaps in synthetic_credit_score range: High 387-813; Low 354-897; Medium 356-899",
+      "row_ref": null
+    },
+    {
+      "severity": "warning",
+      "source": "merchant",
+      "code": "suggested_rate_set_when_no_change",
+      "detail": "38 clients have rate_change_recommended=False but suggested_rate_pct differs from current_rate_pct; the UI shows 'No change recommended' for these and does not display the suggested value",
+      "row_ref": null
+    },
+    {
+      "severity": "warning",
+      "source": "merchant",
+      "code": "working_capital_below_minimum_facility",
+      "detail": "64 clients have a suggested working-capital limit below AED 250,000 (smallest published facility size); no lending suggestion is made for them",
+      "row_ref": null
+    }
+  ],
+  "flagged_clients": 29
+}

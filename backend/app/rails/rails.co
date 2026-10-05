@@ -1,0 +1,16 @@
+# Custom flows for the RM Co-pilots. The actions they call are registered in app/guardrails.py and implemented in app/guard_rules.py.
+
+define bot refuse decision boundary
+  "I can recommend and explain, but I can't approve, send, change or book anything. Those decisions and actions stay with you as the RM. I can show the supporting data or the suggested next step if that helps."
+
+define flow check decision boundary
+  $result = execute check_decision_boundary
+  if $result.is_blocked
+    bot refuse decision boundary
+    stop
+
+define flow check grounding
+  $result = execute check_grounding
+  if $result.is_blocked
+    bot refuse to respond
+    stop
