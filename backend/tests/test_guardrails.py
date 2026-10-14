@@ -58,6 +58,8 @@ def fake(monkeypatch, tmp_path):
     f = FakeLLM()
     ratelimit.limiter.reset()
     monkeypatch.setattr(config, "LLM_API_KEY", "test-key")
+    monkeypatch.setattr(config, "GUARDRAILS_LLM_CHECKS", True)
+    monkeypatch.setattr(config, "CHAT_CACHE_ENABLED", False)
     monkeypatch.setattr(config, "AUDIT_LOG_PATH", tmp_path / "audit.jsonl")
     monkeypatch.setattr(config, "RATE_LIMIT_PER_MIN", 1000)
     monkeypatch.setattr(llm, "complete", f)
@@ -76,7 +78,7 @@ def last_audit(tmp_path):
 # ── deterministic rules ─────────────────────────────────────────────────────
 def test_listing_a_client_that_does_not_match_the_question_is_caught(book):
     clients, _ = book
-    ctx = portfolio_ctx(book)
+    ctx = portfolio_ctx(book, "AED 1,400,000. One client has been dormant for 9 days.")
     wrong = one(clients, lambda c: c.risk == "High" and not c.dormant)          # High risk, terminals active
     right = one(clients, lambda c: c.risk == "High" and c.dormant)
     bad = f"The clients are:\n- **{right.name}**: dormant for 9 days.\n- **{wrong.name}**: idle balance, High risk segment."
@@ -124,7 +126,7 @@ def test_product_policy_not_pitchable_and_already_held(book):
 
 def test_suggested_rate_only_when_a_change_is_recommended(book):
     clients, _ = book
-    ctx = portfolio_ctx(book)
+    ctx = portfolio_ctx(book, "AED 1,400,000. Rates seen: 2.10% and 1.90%.")
     keep = one(clients, lambda c: c.rate_change is False)
     assert [v.rule for v in R.check_answer("x", f"{keep.name}: suggested rate 2.10%.", ctx)] == ["rate_quote"]
     assert not R.check_answer("x", f"{keep.name}: no suggested rate, no change recommended.", ctx)
@@ -142,10 +144,10 @@ def test_client_chat_answer_naming_another_client_is_caught(book):
     assert not R.check_answer("x", f"{me.name} is doing fine.", ctx)
 
 
-def test_unknown_aed_figures_are_soft_findings_not_blocks(book):
+def test_unknown_aed_figures_are_blocked(book):
     ctx = portfolio_ctx(book, "balance 27153 limit 1,400,000")
     v = R.check_answer("x", "Balance AED 27k and a limit of AED 1.4M, plus AED 9,999,999.", ctx)
-    assert [x.detail.split(" does")[0] for x in v] == ["AED 9,999,999"] and not any(x.hard for x in v)
+    assert [x.detail.split(" is not")[0] for x in v] == ["AED 9,999,999"] and all(x.hard for x in v)
 
 
 # ── NeMo rails end to end ───────────────────────────────────────────────────
@@ -208,12 +210,13 @@ def test_llm_self_check_on_output_can_block(fake):
     assert r["mode"] == "data" and r["guardrail"]["rail"] == "self check output"
 
 
-def test_soft_findings_are_audited_but_the_answer_is_kept(fake, tmp_path):
+def test_an_answer_with_an_unknown_figure_is_replaced_and_audited(fake, tmp_path):
     fake.reply = "The balance is AED 9,876,543."
     r = ask("What is the balance?", scope="client")
-    assert r["mode"] == "llm" and r["reply"] == fake.reply
+    assert r["mode"] == "data" and r["reply"] != fake.reply
     g = last_audit(tmp_path)["guardrail"]
-    assert g["blocked"] is False and "ungrounded_number" in g["violations"][0]
+    assert g["blocked"] is True and g["rail"] == "check grounding" and "ungrounded_number" in g["violations"][0]
+    assert last_audit(tmp_path)["blocked_reply"] == fake.reply and "blocked_reply" not in r      # the blocked text is audited, not shown
 
 
 # ── degraded and disabled modes ─────────────────────────────────────────────

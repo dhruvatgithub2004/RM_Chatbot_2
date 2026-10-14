@@ -1,0 +1,98 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Setup: Pull Qwen3 8B",
+      "type": "process",
+      "command": "${env:LOCALAPPDATA}\\Programs\\Ollama\\ollama.exe",
+      "args": ["pull", "qwen3:8b"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Setup: Create Qwen3 8K variant",
+      "type": "process",
+      "command": "${env:LOCALAPPDATA}\\Programs\\Ollama\\ollama.exe",
+      "args": ["create", "qwen3:8b-rm", "-f", "backend\\OllamaModelfile"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Setup: Create Python environment",
+      "type": "process",
+      "command": "py",
+      "args": ["-m", "venv", "venv"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Setup: Install backend packages",
+      "type": "process",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "pip", "install", "-r", "backend\\requirements.txt"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Setup: Install frontend packages",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": ["install"],
+      "options": { "cwd": "${workspaceFolder}\\frontend" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Ollama: Start 8K service",
+      "type": "process",
+      "command": "${env:LOCALAPPDATA}\\Programs\\Ollama\\ollama.exe",
+      "args": ["serve"],
+      "options": {
+        "env": {
+          "OLLAMA_HOST": "127.0.0.1:11435",
+          "OLLAMA_CONTEXT_LENGTH": "8192",
+          "OLLAMA_NUM_PARALLEL": "1",
+          "OLLAMA_KEEP_ALIVE": "30m",
+          "OLLAMA_MODELS": "${env:USERPROFILE}\\.ollama\\models"
+        }
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    },
+    {
+      "label": "Backend: Initialize data (first run)",
+      "type": "process",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "app.ingest"],
+      "options": {
+        "cwd": "${workspaceFolder}\\backend",
+        "env": { "SKIP_LLM_SUGGESTIONS": "1" }
+      },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Backend: Start API",
+      "type": "process",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "uvicorn", "app.main:app", "--port", "8000"],
+      "options": { "cwd": "${workspaceFolder}\\backend" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    },
+    {
+      "label": "Frontend: Start Next.js",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": ["run", "dev"],
+      "options": { "cwd": "${workspaceFolder}\\frontend" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "focus": false }
+    }
+  ]
+}

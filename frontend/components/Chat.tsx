@@ -67,7 +67,7 @@ export default function Chat({ messages, chips, placeholder, busy, onSend }: Pro
                 {m.mode === "llm" && <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>AI-generated · may contain errors · verify before acting</div>}
                 {m.guardrail?.blocked && m.mode === "guard" && <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>Guardrail: {m.guardrail.rail}</div>}
                 {m.guardrail?.blocked && m.mode === "data" && <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>The AI answer failed an accuracy check · showing a data-only answer</div>}
-                {m.mode === "data" && !m.guardrail?.blocked && <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>Data-only answer · LLM not connected</div>}
+                {m.mode === "data" && !m.guardrail?.blocked && <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>Data-only answer</div>}
               </div>
             </div>
           );

@@ -1,4 +1,5 @@
 import inspect
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,95 @@ from app.main import app
 from app.readers import ClientNotFound, ClientReader, PortfolioReader
 
 api = TestClient(app)
+
+
+def test_ollama_completion_uses_local_qwen_json_mode(monkeypatch):
+    from app import config, llm
+
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def __iter__(self):
+            yield json.dumps({"message": {"content": '{"kind":'}, "done": False}).encode() + b"\n"
+            yield json.dumps({"message": {"content": '"none"}'}, "done": True}).encode() + b"\n"
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(config, "LLM_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "OLLAMA_BASE_URL", "http://localhost:11434")
+    monkeypatch.setattr(config, "LLM_MODEL", "qwen3:8b")
+    monkeypatch.setattr("app.llm.urlopen", fake_urlopen)
+
+    result = llm.complete("system rules", [{"role": "user", "content": "question"}], json_mode=True)
+
+    assert result == '{"kind":"none"}'
+    assert captured["url"] == "http://localhost:11434/api/chat"
+    assert captured["payload"]["model"] == "qwen3:8b"
+    assert captured["payload"]["stream"] is True
+    assert captured["payload"]["think"] is False
+    assert captured["payload"]["keep_alive"] == config.OLLAMA_KEEP_ALIVE
+    assert captured["payload"]["format"] == "json"
+    assert captured["payload"]["options"]["num_ctx"] == config.OLLAMA_NUM_CTX
+    assert captured["payload"]["messages"] == [
+        {"role": "system", "content": "system rules"},
+        {"role": "user", "content": "question"},
+    ]
+    assert captured["timeout"] == config.LLM_TIMEOUT
+
+
+def test_chroma_cache_supports_exact_and_semantic_hits_without_cross_context_reuse(monkeypatch):
+    import chromadb
+
+    from app import config
+    from app.chat_cache import ChatResponseCache
+
+    monkeypatch.setattr(config, "CHAT_CACHE_ENABLED", True)
+
+    class FixedEmbedding:
+        def is_legacy(self):
+            return False
+
+        def __call__(self, input):
+            return [[1.0, 0.0, 0.0] for _ in input]
+
+        def embed_query(self, input):
+            return [[1.0, 0.0, 0.0] for _ in input]
+
+        @staticmethod
+        def name():
+            return "fixed-test-embedding"
+
+        def supported_spaces(self):
+            return ["cosine"]
+
+        def get_config(self):
+            return {}
+
+        @classmethod
+        def build_from_config(cls, config):
+            return cls()
+
+    cache = ChatResponseCache(client=chromadb.EphemeralClient(), embedding_function=FixedEmbedding())
+    cache.store("exact-key", "client-1-context", "qwen3:8b-rm", "Where is my client?", "The client is in Dubai.")
+
+    assert cache.get_exact("exact-key") == "The client is in Dubai."
+    cache.warm_up()
+    assert cache.get_semantic("Tell me the client's location", "client-1-context", "qwen3:8b-rm") == "The client is in Dubai."
+    assert cache.get_semantic("Tell me the client's location", "client-2-context", "qwen3:8b-rm") is None
+    assert cache.semantic_namespace("system for client 1", "qwen3:8b-rm") != cache.semantic_namespace("system for client 2", "qwen3:8b-rm")
+    restarted_cache = ChatResponseCache(client=cache._client, embedding_function=FixedEmbedding())
+    restarted_cache.warm_up()
+    assert restarted_cache.get_exact("exact-key") == "The client is in Dubai."
 
 
 def test_ingest_counts(loaded):
@@ -66,16 +156,123 @@ def test_scope_guard_refuses_other_client():
         assert reply["mode"] == "guard"
 
 
+def test_portfolio_question_calls_llm_with_matching_clients_only(monkeypatch):
+    from app import config
+
+    captured = {}
+
+    def fake_complete(system, messages, **kwargs):
+        captured["system"] = system
+        return "29 clients are flagged for attention."
+
+    monkeypatch.setattr(config, "GUARDRAILS_ENABLED", False)
+    monkeypatch.setattr(config, "CHAT_CACHE_ENABLED", False)
+    monkeypatch.setattr(copilot.llm, "complete", fake_complete)
+    with SessionLocal() as s:
+        rows = PortfolioReader(s).portfolio_rows()
+    unflagged_name = next(r["name"] for r in rows if not r["flagged"])
+    flagged_name = next(r["name"] for r in rows if r["flagged"])
+    response = api.post("/api/copilot/portfolio", json={"messages": [{"role": "user", "text": "Which clients are flagged?"}]})
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "llm"
+    assert flagged_name in captured["system"]
+    assert unflagged_name not in captured["system"]
+    assert "=== KNOWLEDGE PAGE ===" not in captured["system"]
+    assert len(captured["system"]) < 10_000
+
+
+def test_exact_chat_cache_hit_skips_model_generation(monkeypatch):
+    from app import config
+
+    class Cache:
+        def exact_key(self, system, messages, model):
+            return "exact-test-key"
+
+        def semantic_namespace(self, system, model):
+            return "test-context"
+
+        def get_exact(self, key):
+            return "Cached model answer."
+
+        def get_semantic(self, question, namespace, model):
+            raise AssertionError("exact hit must be checked before semantic lookup")
+
+        def store(self, *args):
+            raise AssertionError("a cache hit should not be stored again")
+
+    monkeypatch.setattr(config, "LLM_API_KEY", "test-key")
+    monkeypatch.setattr(config, "GUARDRAILS_ENABLED", False)
+    monkeypatch.setattr(copilot.chat_cache, "chat_cache", Cache())
+    monkeypatch.setattr(copilot.llm, "complete", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("LLM should not run")))
+
+    response = api.post("/api/copilot/portfolio", json={"messages": [{"role": "user", "text": "repeat this exactly"}]})
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "llm"
+    assert response.json()["cache_hit"] == "exact"
+    assert response.json()["reply"] == "Cached model answer."
+
+
+def test_semantic_chat_cache_hit_is_reported_and_skips_generation(monkeypatch):
+    from app import config
+
+    class Cache:
+        def exact_key(self, system, messages, model):
+            return "semantic-test-key"
+
+        def semantic_namespace(self, system, model):
+            return "semantic-test-context"
+
+        def get_exact(self, key):
+            return None
+
+        def get_semantic(self, question, namespace, model):
+            assert namespace == "semantic-test-context"
+            assert question == "Tell me about flagged clients"
+            return "The cached semantic answer."
+
+        def store(self, *args):
+            self.stored = args
+
+    monkeypatch.setattr(config, "LLM_API_KEY", "test-key")
+    monkeypatch.setattr(config, "CHAT_CACHE_ENABLED", True)
+    monkeypatch.setattr(copilot.chat_cache, "chat_cache", Cache())
+    monkeypatch.setattr(copilot.llm, "complete", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("LLM should not run")))
+    checked = []
+
+    def allow_input(question, *, use_llm):
+        checked.append(("input", question, use_llm))
+        return copilot.guardrails.Verdict(stage="input")
+
+    def allow_output(question, answer, context, *, use_llm):
+        checked.append(("output", question, answer, use_llm))
+        return copilot.guardrails.Verdict(stage="output")
+
+    monkeypatch.setattr(copilot.guardrails, "check_input", allow_input)
+    monkeypatch.setattr(copilot.guardrails, "check_output", allow_output)
+
+    response = api.post("/api/copilot/portfolio", json={"messages": [{"role": "user", "text": "Tell me about flagged clients"}]})
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "llm"
+    assert response.json()["cache_hit"] == "semantic"
+    assert response.json()["reply"] == "The cached semantic answer."
+    assert [check[0] for check in checked] == ["input", "output"]
+
+
 def test_supplied_fields_flow_through():
     d = api.get("/api/clients/MER2001").json()
     assert d["card_pos"]["card_no"].endswith("7532") and d["card_pos"]["card_type"] == "Visa Signature Business Debit Card"
-    assert (d["rate"]["current_pct"], d["rate"]["suggested_pct"]) == (2.42, 1.67) and d["rate"]["change_recommended"] is True
+    # the suggested rate is a range around the model's 1.67% (improvement 04); the exact figure is not sent
+    assert (d["rate"]["current_pct"], d["rate"]["suggested_low_pct"], d["rate"]["suggested_high_pct"]) == (2.42, 1.55, 1.80)
+    assert d["rate"]["change_recommended"] is True and "suggested_pct" not in d["rate"]
     assert "retention risk" in d["rate"]["rationale"]
     assert set(d["profile"]["existing_products"]) >= {"Current Account", "Merchant Acquiring Services"}
     assert any(x["candidate_product"] == "Payroll / WPS Services" for x in d["ntb_candidates"])
     assert d["lending"]["suggested_working_capital_limit_aed"] == 320000
     r = api.get("/api/clients/MER2005").json()["rate"]
-    assert r["change_recommended"] is True and (r["current_pct"], r["suggested_pct"]) == (2.55, 1.77)
+    assert r["change_recommended"] is True and (r["current_pct"], r["suggested_low_pct"], r["suggested_high_pct"]) == (2.55, 1.65, 1.90)
 
 
 def test_pitch_rules():
@@ -90,7 +287,7 @@ def test_pitch_rules():
 def test_api_contract():
     assert api.get("/api/data/status").json()["synthetic"] is True
     dash = api.get("/api/dashboard?filter=opp").json()
-    assert dash["flagged_count"] == len(dash["clients"]) > 0
+    assert dash["flagged_count"] > 0 and len(dash["clients"]) > 0
     assert api.get("/api/dashboard?q=zzzz-none").json()["clients"] == []
     sug = api.get("/api/suggestions").json()
     assert len(sug) == 10 and all(x["category"] in ("Lending", "Cross-sell") for x in sug)

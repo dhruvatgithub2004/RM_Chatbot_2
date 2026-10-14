@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { fmtAed, fmtNum } from "@/lib/format";
 import type { ClientDetail, DirectoryClient, DirectoryFilters, FilterOptions } from "@/lib/types";
 import Blueprint, { ErrorCard, Loading, Row } from "./Blueprint";
+import CardMixPie from "./CardMixPie";
 
 interface Props {
   selectedId: string | null;
@@ -165,7 +166,16 @@ export default function Profile({ selectedId, onSelect, onBack, onSuggestions, o
                 <div style={{ fontSize: 20, color: "var(--color-accent)" }}>→</div>
                 <div>
                   <div className="text-muted" style={{ fontSize: 11 }}>Suggested</div>
-                  <div style={{ fontFamily: "var(--font-heading)", fontSize: 28, color: "var(--color-accent-700)" }}>{c.rate.change_recommended ? `${c.rate.suggested_pct.toFixed(2)}%` : "No change"}</div>
+                  <div style={{ fontFamily: "var(--font-heading)", fontSize: 28, color: "var(--color-accent-700)" }}>
+                    {!c.rate.change_recommended ? "No change"
+                      : c.rate.suggested_low_pct == null ? "—"       // an API from before the range was introduced sends no range
+                      : `${c.rate.suggested_low_pct.toFixed(2)}%–${c.rate.suggested_high_pct.toFixed(2)}%`}
+                  </div>
+                  {c.rate.change_recommended && c.rate.suggested_low_pct != null && (
+                    <div className="text-muted" style={{ fontSize: 11 }}>
+                      Illustrative range: the model's estimate ±{c.rate.band_pp.toFixed(2)} points, rounded
+                    </div>
+                  )}
                 </div>
               </div>
               <p className="card-body">
@@ -190,19 +200,8 @@ export default function Profile({ selectedId, onSelect, onBack, onSuggestions, o
 
               <Blueprint>
                 <div className="card-kicker">Card mix analysis</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", marginTop: "var(--space-2)" }}>
-                  {c.card_mix.map((mix) => (
-                    <div key={mix.type}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
-                        <span>{mix.type}</span>
-                        <span className="text-muted">{fmtNum(mix.txns)} txns</span>
-                      </div>
-                      <div style={{ height: 8, background: "var(--color-surface)", border: "1px solid var(--color-divider)" }}>
-                        <div style={{ height: "100%", width: `${mix.pct}%`, background: "var(--color-accent)" }} />
-                      </div>
-                    </div>
-                  ))}
-                  {c.card_mix.length === 0 && <span className="text-muted">No POS data</span>}
+                <div style={{ marginTop: "var(--space-2)" }}>
+                  <CardMixPie mix={c.card_mix} />
                 </div>
               </Blueprint>
             </div>

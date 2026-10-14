@@ -8,6 +8,11 @@ class Base(DeclarativeBase):
     pass
 
 
+class FeedbackBase(DeclarativeBase):
+    """RM ratings of suggestions. A separate set of tables on purpose: ingest rebuilds every table in `Base` from the CSV files,
+    and a rating is the RM's own input, which a data reload must not erase."""
+
+
 def make_engine(url: str | None = None):
     url = url or config.DATABASE_URL
     kwargs = {"connect_args": {"check_same_thread": False}} if url.startswith("sqlite") else {}

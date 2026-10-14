@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from . import config
+from . import catalogue, config, feedback, rates, segments
 from . import models as m
 
 MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -52,9 +52,7 @@ class PortfolioReader:
 
     def dashboard(self, flt: str = "all", q: str = "") -> dict:
         stmt = self._ranked()
-        if flt == "opp":
-            stmt = stmt.where(m.ClientPriority.flagged)
-        elif flt == "high":
+        if flt == "high":
             stmt = stmt.where(m.Client.risk_segment == "High")
         if q:
             like = f"%{q.lower()}%"
@@ -63,6 +61,13 @@ class PortfolioReader:
         rows = self.s.execute(stmt).all()
         flagged = self.s.scalar(select(func.count()).select_from(m.ClientPriority).where(m.ClientPriority.flagged)) or 0
         sug = self._suggestion_rows()      # the AI decision (or the rule fallback) for each client, shown next to the attention reason
+        if flt == "opp":
+            rows = self._opportunities(rows, sug)
+        rated = feedback.verdicts(self.s)  # the RM's rating of the suggestion currently shown, if any
+
+        def rating(mid: str):
+            x = sug.get(mid)
+            return None if x is None or x.kind == "none" else rated.get((mid, feedback.key_for(x.kind, x.product)))
 
         def decision(mid: str):
             x = sug.get(mid)
@@ -73,9 +78,151 @@ class PortfolioReader:
             decisions_source=self._suggestions_source()["mode"],
             clients=[dict(rank=i, merchant_id=c.merchant_id, name=c.business_name, city=c.city, industry=c.industry,
                           reason=p.reason, score=p.score, flagged=p.flagged, risk=c.risk_segment, is_dormant_now=f.is_dormant_now,
-                          decision=decision(c.merchant_id))
+                          decision=decision(c.merchant_id), feedback=rating(c.merchant_id))
                      for i, (c, p, f) in enumerate(rows, start=1)],
         )
+
+    def act_now(self, limit: int = segments.ACT_NOW) -> dict:
+        """The merchants the RM should act on now. Step 1: the high-value churn risks. Rules pick and rank them from the data
+        (segments.py). The step to take is the AI suggestion engine's own retention decision where it has made one for the client;
+        otherwise the rule-based wording, labelled as such."""
+        from .suggest_llm import _segment_decision      # imported here because suggest_llm imports this module
+        top, at_risk, high_value = segments.high_value_churn(segments.assign(self.s), limit)
+        clients = {c.merchant_id: c for c in self.s.scalars(select(m.Client))}
+        sug = self._suggestion_rows()
+        items = []
+        for rank, (mid, sg) in enumerate(top, start=1):
+            stored = sug.get(mid)
+            if stored is not None and stored.kind == "retention":
+                action = dict(kind="retention", why=stored.why, next_action=stored.next_action, source=stored.source, model=stored.model)
+            else:
+                kind, why, step = _segment_decision(sg, "churn_risk")
+                action = dict(kind=kind, why=why, next_action=step, source="rules", model=None)
+            c = clients[mid]
+            items.append(dict(
+                rank=rank, merchant_id=mid, name=c.business_name, city=c.city, industry=c.industry, action=action,
+                **{k: sg[k] for k in ("value_tier", "monthly_revenue_aed", "revenue_gap_vs_baseline_aed", "revenue_change_vs_prior_30d_aed",
+                                      "volume_change_vs_prior_30d_pct", "volume_vs_baseline_pct", "baseline_months", "dormant_days", "reasons")}))
+        return dict(segment="churn_risk", label=segments.LABELS["churn_risk"], definition=segments.DEFINITION,
+                    at_risk=at_risk, high_value_at_risk=high_value, items=items)
+
+    def cross_sell_targets(self, limit: int = segments.ACT_NOW) -> dict:
+        """Step 2 of the dashboard: merchants that do not yet hold a product the bank can offer them. Rules choose and rank them from the
+        data. The product is the AI engine's cross-sell decision where it made one, otherwise the first supplied new-to-bank candidate the
+        merchant does not already hold; each card says which. A merchant that also qualifies for a working-capital facility shows it as a
+        second line. Churn risks are left out: they need retention first. Ranked by estimated monthly revenue plus any growth in it."""
+        assigned = segments.assign(self.s)
+        held: dict[str, list[str]] = {}
+        for mid, prod in self.s.execute(select(m.ClientProduct.merchant_id, m.ClientProduct.product)).all():
+            held.setdefault(mid, []).append(prod)
+        clients = {c.merchant_id: c for c in self.s.scalars(select(m.Client))}
+        ntb = {p.merchant_id: list(p.ntb or []) for p in self.s.scalars(select(m.ClientPriority))}
+        sug = self._suggestion_rows()
+        loans = {p["merchant_id"]: p for p in self.pitch_list() if p["category"] == "Lending"}
+        candidates = []
+        for mid, sg in assigned.items():
+            if "churn_risk" in sg["codes"]:
+                continue
+            free = [x for x in ntb.get(mid, []) if not catalogue.holds(held.get(mid, []), x["candidate_product"])]
+            decided = sug.get(mid)
+            if decided is not None and decided.kind == "cross_sell" and decided.product and not catalogue.holds(held.get(mid, []), decided.product):
+                offer = dict(kind="Cross-sell", product=decided.product, why=decided.why, next_action=decided.next_action,
+                             source=decided.source, model=decided.model)
+            elif free:
+                offer = dict(kind="Cross-sell", product=free[0]["candidate_product"], why=free[0]["rationale"], next_action=None,
+                             source="rules", model=None)
+            else:
+                continue
+            score = sg["monthly_revenue_aed"] + max(0, sg["revenue_change_vs_prior_30d_aed"])
+            candidates.append((score, mid, sg, offer))
+        candidates.sort(key=lambda t: (-t[0], t[1]))
+        items = []
+        for rank, (_, mid, sg, offer) in enumerate(candidates[:limit], start=1):
+            c, loan = clients[mid], loans.get(mid)
+            items.append(dict(
+                rank=rank, merchant_id=mid, name=c.business_name, city=c.city, industry=c.industry, value_tier=sg["value_tier"],
+                reasons=[f"No {offer['product']} on file"] + sg["growth_reasons"], growth_reasons=sg["growth_reasons"], offer=offer,
+                also_lending=None if loan is None else dict(product=loan["product"], amount_aed=loan["amount_aed"])))
+        return dict(segment="cross_sell", label="Cross-sell target", definition=segments.CROSS_SELL_DEFINITION,
+                    candidates=len(candidates), growth_ready=sum(1 for t in candidates if "growth_ready" in t[2]["codes"]),
+                    also_lending=sum(1 for t in candidates if t[1] in loans), items=items)
+
+    def top_performers(self, limit: int = segments.ACT_NOW) -> dict:
+        """Step 3 of the dashboard: the merchants driving the bulk of the portfolio's card volume, largest first. Rules choose and rank them
+        (segments.py). The step is the AI engine's "engage" decision where it made one. A top performer that is also a churn risk gets the
+        retention step instead, because retention comes first. Otherwise the rule-based wording is shown, labelled as such."""
+        from .suggest_llm import _segment_decision      # imported here because suggest_llm imports this module
+        assigned = segments.assign(self.s)
+        top, total = segments.top_performers(assigned, limit)
+        clients = {c.merchant_id: c for c in self.s.scalars(select(m.Client))}
+        sug = self._suggestion_rows()
+        items = []
+        for rank, (mid, sg) in enumerate(top, start=1):
+            c, stored = clients[mid], sug.get(mid)
+            churn = "churn_risk" in sg["codes"]
+            wanted = "retention" if churn else "engage"
+            if stored is not None and stored.kind == wanted:
+                action = dict(kind=wanted, why=stored.why, next_action=stored.next_action, source=stored.source, model=stored.model)
+            else:
+                kind, why, step = _segment_decision(sg, "churn_risk" if churn else "top_performer")
+                action = dict(kind=kind, why=why, next_action=step, source="rules", model=None)
+            chg = sg["volume_change_vs_prior_30d_pct"]
+            trend = ([] if chg is None else ["Card volume steady against the prior 30 days"] if abs(chg) < 1
+                     else [f"Card volume {'up' if chg > 0 else 'down'} {abs(chg):.0f}% against the prior 30 days"])
+            items.append(dict(
+                rank=rank, merchant_id=mid, name=c.business_name, city=c.city, industry=c.industry, value_tier=sg["value_tier"],
+                volume_rank=sg["volume_rank"], volume_share_pct=sg["volume_share_pct"], city_volume_share_pct=sg["city_volume_share_pct"],
+                volume_change_vs_prior_30d_pct=chg, churn_risk=churn,
+                reasons=[f"Ranked {sg['volume_rank']} of {sg['clients_in_portfolio']} merchants by card volume",
+                         f"{sg['volume_share_pct']}% of the portfolio's card volume",
+                         f"{sg['city_volume_share_pct']}% of {c.city}'s card volume"] + trend
+                        + (["Also a churn risk, so retention comes first"] if churn else []),
+                action=action))
+        return dict(segment="top_performer", label=segments.LABELS["top_performer"], definition=segments.TOP_PERFORMER_DEFINITION,
+                    top_performers=total, share_of_volume_pct=round(sum(s["volume_share_pct"] for s in assigned.values() if "top_performer" in s["codes"]), 1),
+                    items=items)
+
+    def dormant_reactivation(self, limit: int = segments.ACT_NOW) -> dict:
+        """Step 4 of the dashboard: merchants whose terminals are inactive now, ranked by their own earlier monthly card volume. Rules choose
+        and rank them. The step is the AI engine's retention decision where it made one, otherwise the rule-based reactivation wording."""
+        from .suggest_llm import _segment_decision      # imported here because suggest_llm imports this module
+        assigned = segments.assign(self.s)
+        top, total = segments.dormant_targets(assigned, limit)
+        clients = {c.merchant_id: c for c in self.s.scalars(select(m.Client))}
+        sug = self._suggestion_rows()
+        items = []
+        for rank, (mid, sg) in enumerate(top, start=1):
+            c, stored = clients[mid], sug.get(mid)
+            if stored is not None and stored.kind == "retention":
+                action = dict(kind="retention", why=stored.why, next_action=stored.next_action, source=stored.source, model=stored.model)
+            else:
+                kind, why, step = _segment_decision(sg, "dormant")
+                action = dict(kind=kind, why=why, next_action=step, source="rules", model=None)
+            chg = sg["volume_change_vs_prior_30d_pct"]
+            items.append(dict(
+                rank=rank, merchant_id=mid, name=c.business_name, city=c.city, industry=c.industry, value_tier=sg["value_tier"],
+                dormant_days=sg["dormant_days"], earlier_monthly_volume_aed=sg["earlier_monthly_volume_aed"], volume_change_vs_prior_30d_pct=chg,
+                reasons=[f"POS terminals inactive for {sg['dormant_days']} days",
+                         f"Earlier monthly card volume of AED {sg['earlier_monthly_volume_aed']:,}"]
+                        + ([] if chg is None or chg > -1 else [f"Card volume down {abs(chg):.0f}% against the prior 30 days"]),
+                action=action))
+        return dict(segment="dormant", label="Dormant reactivation target", definition=segments.DORMANT_DEFINITION, inactive=total, items=items)
+
+    @staticmethod
+    def _opportunities(rows, sug: dict) -> list:
+        """Clients with a suggested action (lending, cross-sell or retention), strongest first.
+
+        Strength is the suggestion engine's priority; ties go to the better opportunity tier, then the larger supplied limit.
+        Clients whose decision is "none" are left out. Before any decisions exist the supplied-data pitch decides who qualifies,
+        ranked by the attention score.
+        """
+        if sug:
+            kept = [r for r in rows if sug.get(r[0].merchant_id) and sug[r[0].merchant_id].kind != "none"]
+            strength = lambda r: sug[r[0].merchant_id].priority or 0
+        else:
+            kept = [r for r in rows if r[1].pitch_kind is not None]
+            strength = lambda r: r[1].score
+        return sorted(kept, key=lambda r: (-strength(r), r[0].opportunity_tier, -r[0].suggested_working_capital_limit_aed, r[0].merchant_id))
 
     def client_directory(self, q: str = "", balance_min: float | None = None, balance_max: float | None = None,
                          segment: str | None = None, card_type: str | None = None, product: str | None = None) -> list[dict]:
@@ -143,7 +290,8 @@ class PortfolioReader:
         items = self.pitch_list()
         if product:
             items = [x for x in items if x["product"] == product]
-        return items[:limit]
+        rated = feedback.verdicts(self.s)
+        return [dict(x, feedback=rated.get((x["merchant_id"], x["product"]))) for x in items[:limit]]
 
     def suggestion_products(self) -> list[dict]:
         """Products that appear in the pitch list, with how many clients each is pitched to."""
@@ -164,10 +312,11 @@ class PortfolioReader:
             out.append(dict(
                 id=c.merchant_id, name=c.business_name, city=c.city, industry=c.industry, package=c.package, risk=c.risk_segment,
                 rm=c.rm_id, rank=p.rank, score=p.score, flagged=p.flagged, reason=p.reason,
-                vol_t30=f.volume_t30, vol_change=f.volume_change_t30_vs_p30, dormant_days=f.dormant_streak_days,
+                vol_t30=f.volume_t30, vol_p30=f.volume_p30, vol_change=f.volume_change_t30_vs_p30, dormant_days=f.dormant_streak_days,
                 limit_util=f.monthly_limit_utilisation_t30, balance=c.account_balance_aed,
                 rec=(f"{p.rec_category}: {p.rec_title}" if p.rec_title else None), rec_category=p.rec_category,
-                card_product=c.card_product, rate_current=c.current_rate_pct, rate_suggested=c.suggested_rate_pct,
+                card_product=c.card_product, rate_current=c.current_rate_pct, rate_suggested=c.suggested_rate_pct,   # rate_suggested: exact, for ordering only
+                rate_lo=rates.band(c.suggested_rate_pct)[0], rate_hi=rates.band(c.suggested_rate_pct)[1],
                 rate_change=c.rate_change_recommended, wc_limit=c.suggested_working_capital_limit_aed,
                 opportunity=c.opportunity_label, products=sorted(held.get(c.merchant_id, [])),
                 ntb=[x["candidate_product"] for x in (p.ntb or [])],
@@ -268,9 +417,12 @@ class ClientReader:
                 business_type=c.business_type, license_authority=c.license_authority, vat_registered=c.vat_registered,
                 rm_id=c.rm_id, branch_id=c.branch_id,
             ),
+            # The exact modelled rate stays in the database; the app shows and the model receives a range (see rates.py).
             rate=dict(
-                available=True, tier=c.rate_tier, current_pct=c.current_rate_pct, suggested_pct=c.suggested_rate_pct,
-                change_recommended=c.rate_change_recommended, rationale=c.rate_rationale,
+                available=True, tier=c.rate_tier, current_pct=c.current_rate_pct,
+                suggested_low_pct=rates.band(c.suggested_rate_pct)[0], suggested_high_pct=rates.band(c.suggested_rate_pct)[1],
+                band_pp=rates.HALF_WIDTH_PP, change_recommended=c.rate_change_recommended,
+                rationale=rates.rewrite_rationale(c.rate_rationale, c.current_rate_pct, c.suggested_rate_pct, c.rate_change_recommended),
             ),
             lending=dict(suggested_working_capital_limit_aed=c.suggested_working_capital_limit_aed,
                          opportunity_tier=c.opportunity_tier, opportunity_label=c.opportunity_label),

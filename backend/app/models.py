@@ -1,10 +1,10 @@
 """SQLAlchemy models. Sourced tables mirror the CSVs; derived tables are computed at ingest."""
 from datetime import date as DateT, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .db import Base
+from .db import Base, FeedbackBase
 
 
 class IngestRun(Base):
@@ -181,3 +181,23 @@ class ClientSuggestion(Base):
     priority: Mapped[float] = mapped_column(Float, default=0.0)       # 0-100, LLM's own strength-of-opportunity rating
     note: Mapped[str | None] = mapped_column(String, nullable=True)   # validation note (e.g. amount clamped, fallback reason)
     generated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ClientFeedback(FeedbackBase):
+    """An RM's rating of one suggestion. Stores a snapshot of what was suggested, so the rating still makes sense after suggestions are
+    regenerated. One row per client and suggestion (the product, or the kind when there is none); rating again replaces it."""
+    __tablename__ = "client_feedback"
+    __table_args__ = (UniqueConstraint("merchant_id", "suggestion_key"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    merchant_id: Mapped[str] = mapped_column(String, index=True)
+    suggestion_key: Mapped[str] = mapped_column(String)               # the product name, or the kind when the suggestion has no product
+    kind: Mapped[str] = mapped_column(String)                         # lending | cross_sell | retention
+    product: Mapped[str | None] = mapped_column(String, nullable=True)
+    amount_aed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String)                       # llm | rules
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    priority: Mapped[float | None] = mapped_column(Float, nullable=True)
+    verdict: Mapped[str] = mapped_column(String)                      # useful | not_useful
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)

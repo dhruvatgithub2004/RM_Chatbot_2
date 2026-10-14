@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from . import rates
+
 # ── policy parameters ───────────────────────────────────────────────────────
 FLAG_THRESHOLD = 30.0               # score >= this => "flagged for attention" / "Opportunity"
 DECLINE_T30 = -0.10                 # volume change vs prior 30d at/below which decline is a signal
@@ -77,7 +79,7 @@ def _signals(c: dict, f: dict) -> list[dict]:
                       text=f"Volume up {pct(chg)} vs prior 30 days"))
     if c.get("rate_change_recommended"):
         s.append(dict(code="rate_review", kind="opportunity", points=RATE_REVIEW_POINTS,
-                      text=f"Rate review: {c['current_rate_pct']:.2f}% → {c['suggested_rate_pct']:.2f}% recommended"))
+                      text=rates.review_text(c["current_rate_pct"], c["suggested_rate_pct"])))
     rp = RISK_POINTS.get(c["risk_segment"], 0.0)
     if rp:
         s.append(dict(code="risk_segment", kind="risk", points=rp, text=f"{c['risk_segment']} risk segment"))

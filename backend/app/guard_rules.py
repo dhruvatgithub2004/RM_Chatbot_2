@@ -11,8 +11,9 @@ calls them directly if NeMo cannot be loaded, so the protection never depends on
           forbidden_claim     the bot claims to have approved / sent / changed something, or guarantees an outcome
           rate_quote          quotes a suggested rate for a client with no rate change recommended
           product_policy      recommends a not-pitchable product, or one the client already holds
-        soft rule (audited, not blocked):
-          ungrounded_number   an AED figure in the answer that appears nowhere in the data or knowledge page (it may be derived)
+          ungrounded_number   an AED amount, percentage, day or month count, or client count that is not in the data the model was given
+                              (for a client named in the answer: that client's figures, the portfolio totals, the knowledge page, or a
+                              number the RM wrote in the question). Rounding is allowed to the precision the answer states.
 
 The rules are deliberately conservative: a sentence that contains a negation ("not dormant", "no suggested rate") is skipped,
 so a correct answer is not blocked. Blocking a wrong answer is cheap, because the caller falls back to the data-only answer.
@@ -37,6 +38,7 @@ class ClientFacts:
     flagged: bool
     held: tuple[str, ...] = ()
     rate_change: bool | None = None
+    figures: tuple[tuple[str, float], ...] = ()    # (kind, value) of every number the model was shown for this client; kind is pct, days or any
 
 
 @dataclass
@@ -87,7 +89,17 @@ class GroundingContext:
 
     @cached_property
     def numbers(self) -> list[float]:
-        return [float(x.replace(",", "")) for x in re.findall(r"\d[\d,]*\.?\d*", self.reference_text) if x.strip(",.")]
+        return numbers_in(self.reference_text)
+
+    @cached_property
+    def pct_numbers(self) -> list[float]:
+        """Numbers the reference text writes as percentages."""
+        return [float(m.group(1)) for m in _PCT.finditer(self.reference_text)]
+
+    @cached_property
+    def day_numbers(self) -> list[float]:
+        """Numbers the reference text writes as days."""
+        return [float(m.group(1)) for m in _DURATION.finditer(self.reference_text) if m.group(2).lower().startswith("day")]
 
     def clients_in(self, unit: str) -> list[list[ClientFacts]]:
         """Distinct clients named in a sentence. Duplicate business names map to a group of clients."""
@@ -103,6 +115,24 @@ class GroundingContext:
 
 
 # ── shared helpers ──────────────────────────────────────────────────────────
+_SCALE = {"k": 1e3, "thousand": 1e3, "m": 1e6, "million": 1e6, "bn": 1e9, "billion": 1e9}
+_NUM = re.compile(r"(?<![A-Za-z0-9])(\d[\d,]*(?:\.\d+)?)(?:\s*(k|thousand|m|million|bn|billion)\b)?", re.I)
+
+
+def numbers_in(text: str) -> list[float]:
+    """Every number in a text. A number written with a scale ("27k", "5 million") is listed both as written and scaled."""
+    out: list[float] = []
+    for m in _NUM.finditer(text):
+        try:
+            v = float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        out.append(v)
+        if m.group(2):
+            out.append(v * _SCALE[m.group(2).lower()])
+    return out
+
+
 def id_pattern(mid: str) -> str:
     """Regex for a merchant ID that also matches separated spellings ('MER 2002', 'mer-2002')."""
     m = re.fullmatch(r"([A-Za-z]+)(\d+)", mid)
@@ -178,7 +208,7 @@ _FORBIDDEN = [
     (re.compile(r"\bguarantee[sd]?\b", re.I), "guarantees an outcome"),
     (re.compile(r"\bbureau\s+(?:score|rating|report)\b", re.I), "refers to a credit bureau score"),
 ]
-_RATE_QUOTE = re.compile(r"suggested\s+(?:merchant\s+)?rate\b[^.\n;]{0,40}?\d+(?:\.\d+)?\s*%", re.I)
+_RATE_QUOTE = re.compile(r"(?:suggested\s+(?:merchant\s+)?rate|model(?:led)?(?:\s+rate)?\s+range)\b[^.\n;]{0,40}?\d+(?:\.\d+)?\s*%", re.I)
 _RECOMMEND = re.compile(r"\b(?:recommend(?:ed|ing|s)?|pitch(?:ed|ing)?|offer(?:ed|ing)?|suggest(?:ed|ing|s)?|propos(?:e|ed|ing)|"
                         r"cross[- ]sell(?:ing)?)\b", re.I)
 _TAIL_END = re.compile(r"[.;|]|\b(?:existing products?|products? held|currently holds?|already (?:holds?|has|have)|holds?)\b", re.I)
@@ -199,6 +229,69 @@ def _recommended_products(unit: str) -> list[str]:
     end = _TAIL_END.search(tail)
     tail = tail[: end.start()] if end else tail
     return [p for p in catalogue.BY_NAME if re.search(rf"(?<!\w){re.escape(p)}(?!\w)", tail, re.I)]
+
+
+_PCT = re.compile(r"(?<![A-Za-z0-9.])(\d+(?:\.(\d+))?)\s?%")
+_DURATION = re.compile(r"(?<![A-Za-z0-9.])(\d+)\s*[- ]?(days?|months?)\b", re.I)
+_COUNT = re.compile(r"(?<![A-Za-z0-9.,])(\d[\d,]*)\s+(?:of\s+(?:the\s+)?(\d[\d,]*)\s+)?(?:[A-Za-z-]+\s+){0,2}?(?:clients?|merchants?|customers?)\b", re.I)
+_WINDOW_DAYS, _WINDOW_MONTHS = {30, 60}, {6, 12}      # the comparison windows the data is built on ("last 30 days", "6 months")
+_MIN_AED = 100                                        # smaller amounts are not checked: they are usually unit prices in a sentence
+
+
+def _near(value: float, pool: list[float], decimals: int) -> bool:
+    """True when `value`, as written to `decimals` places, can be a rounding of some number in the pool."""
+    tol = 0.5 * 10 ** -decimals + 1e-6
+    return any(abs(value - n) <= tol for n in pool)
+
+
+def check_figures(question: str, answer: str, ctx: GroundingContext) -> list[Violation]:
+    """Block an AED amount, percentage, day or month count, or client count that is not in the data the model was given.
+
+    Pool for a figure: the portfolio totals and knowledge text, the figures of every client the answer names, and any number the RM wrote
+    in the question. In the portfolio chat a percentage is matched only against percentages and a day count against day counts. In a
+    single-client chat the pool is the client's whole JSON, so percentages are also compared as fractions (0.43 and 43%).
+    """
+    text = answer.replace("**", "")
+    named = ctx.clients_in(text)
+    mine = [f for group in named for c in group for f in c.figures]      # (kind, value) of the clients the answer names
+    pool = list(ctx.numbers) + numbers_in(question) + [v for _, v in mine]          # AED amounts, counts, months
+    if ctx.scope == "portfolio":
+        # A percentage must match a percentage and a day count a day count, so "7%" cannot pass on a "7" that means something else.
+        pct_pool = ctx.pct_numbers + [v for k, v in mine if k == "pct"] + [float(m.group(1)) for m in _PCT.finditer(question)]
+        day_pool = ctx.day_numbers + [v for k, v in mine if k == "days"] + [float(m.group(1)) for m in _DURATION.finditer(question)]
+    else:   # one client: the JSON holds bare numbers and fractions, so any number can stand for a percentage or a day count
+        pct_pool = pool + [n * 100 for n in pool if n != int(n) and abs(n) < 10]
+        day_pool = pool
+    out: list[Violation] = []
+
+    def bad(shown: str, why: str):
+        out.append(Violation("ungrounded_number", f"{shown} {why}"))
+
+    for m in _AED.finditer(text):
+        digits = m.group(1).replace(",", "")
+        scale = _SCALE.get((m.group(2) or "").lower(), 1)
+        v = float(digits) * scale
+        # Rounding is allowed to the precision the answer states: "AED 27k" can stand for 27,153; "AED 53.5M" for 53,451,120; "AED 54.5M" cannot.
+        tol = 0.5 * 10 ** -(len(digits.split(".")[1]) if "." in digits else 0) * scale + 1e-6
+        if v >= _MIN_AED and not any(abs(v - n) <= tol for n in pool):
+            bad(m.group(0).strip(), "is not in the data")
+    for m in _PCT.finditer(text):
+        if not _near(float(m.group(1)), pct_pool, len(m.group(2) or "")):
+            bad(m.group(0), "is not in the data")
+    for m in _DURATION.finditer(text):
+        v, unit = int(m.group(1)), m.group(2).lower()
+        if unit.startswith("month"):
+            ok = v in _WINDOW_MONTHS or _near(v, pool, 0)
+        else:
+            ok = v in _WINDOW_DAYS or _near(v, day_pool, 0)
+        if not ok:
+            bad(m.group(0), "is not in the data")
+    listed = len(named)
+    for m in _COUNT.finditer(text):
+        for g in (m.group(1), m.group(2)):
+            if g and (v := int(g.replace(",", ""))) != listed and not _near(v, pool, 0):
+                bad(f"{g} clients" if g == m.group(1) else f"of {g} clients", "is not in the data")
+    return out
 
 
 def check_answer(question: str, answer: str, ctx: GroundingContext) -> list[Violation]:
@@ -239,11 +332,5 @@ def check_answer(question: str, answer: str, ctx: GroundingContext) -> list[Viol
                 out.append(Violation("product_policy", f"recommends {prod}, which {holders[0]} already holds"))
 
     if ctx.reference_text:
-        for m in _AED.finditer(answer.replace("**", "")):
-            value = float(m.group(1).replace(",", ""))
-            suffix = (m.group(2) or "").lower()
-            value *= {"k": 1e3, "thousand": 1e3, "m": 1e6, "million": 1e6}.get(suffix, 1)
-            tol = 0.06 if suffix else 0.006
-            if value >= 1000 and not any(abs(value - n) <= tol * max(abs(n), 1) for n in ctx.numbers):
-                out.append(Violation("ungrounded_number", f"{m.group(0)} does not appear in the data (it may be derived)", hard=False))
+        out.extend(check_figures(question, answer, ctx))
     return out

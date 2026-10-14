@@ -82,7 +82,7 @@ class _Adapter:
                 else:
                     messages.append({"role": "assistant" if role == "assistant" else "user", "content": content})
         max_tokens = min(int(kwargs.get("max_tokens") or 50), 200)
-        text = await asyncio.to_thread(llm.complete, system, messages, max_tokens=max_tokens, timeout=20)
+        text = await asyncio.to_thread(llm.complete, system, messages, max_tokens=max_tokens, timeout=config.LLM_TIMEOUT)
         return LLMResponse(content=text, model=config.LLM_MODEL)
 
     async def stream_async(self, prompt, *, stop=None, **kwargs):

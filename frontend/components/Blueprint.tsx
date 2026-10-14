@@ -1,9 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
 
 /** Industry design-system card: hairline frame with four corner registration marks. */
-export default function Blueprint({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+export default function Blueprint({ children, style, className, onClick }:
+                                  { children: ReactNode; style?: CSSProperties; className?: string; onClick?: () => void }) {
   return (
-    <div className="card blueprint elev-sm" style={style}>
+    <div className={`card blueprint elev-sm${className ? ` ${className}` : ""}`} style={style} onClick={onClick}>
       <i className="corner tl" />
       <i className="corner tr" />
       <i className="corner bl" />

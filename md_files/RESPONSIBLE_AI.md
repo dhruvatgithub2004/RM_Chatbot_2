@@ -49,7 +49,7 @@ Where: `backend/app/suggest_llm.py`, `backend/app/catalogue.py`. Tests: `test_va
 - **Prompt-injection resistance (structural):** user text is only ever sent as a user message. It is never added to the system prompt, and the roles `system`, `tool` and `developer` are rejected by the API (HTTP 422), as is a request whose last message is not from the user. Messages are clipped to 8,000 characters. Even a successful injection cannot expose another client, because the merchant co-pilot's context contains one client only. Tests: `tests/test_responsible_ai.py` (injection, forged-history, role and size tests, using a recording fake LLM). The question is also screened by NeMo input rails (section 8).
 - **Guard coverage:** the cross-client guard matches names in any case, inside punctuation, and merchant IDs written as `MER2002`, `mer2002`, `MER 2002`, `mer-2002` or `MER_2002`.
 - **Synthetic data only:** no real customer, bureau or compliance data is used. Labelling is enforced in the API (`/api/data/status` always returns `synthetic: true` and a disclaimer), the sidebar tag ("Data as of … · Synthetic"), the field name `synthetic_credit_score`, and a rule in the system prompt.
-- **Third-party processing:** with an LLM configured, the relevant client data and the user's question are sent to the configured provider (OpenAI or Anthropic) to produce an answer. This is acceptable for synthetic data; see section 11 before using real data.
+- **Local processing by default:** the relevant client data and the user's question are sent to the local Ollama server (`qwen3:8b`) to produce an answer. Selecting a hosted alternate provider sends that information outside the machine; review its retention and training terms before using real data.
 - **Secrets:** API keys live in `backend/.env`, which is gitignored. `.env.example` contains no key.
 
 ## 6. Transparency
@@ -95,7 +95,7 @@ The rails are configured in `backend/app/rails/` (`config.yml`, `rails.co`, `pro
 
 **If NeMo cannot load, or an LLM-based rail errors,** the deterministic rules run directly (`engine: rules` in the audit log), so the hard guarantees never depend on NeMo or on an LLM. The LLM-based rails can be switched off with `GUARDRAILS_LLM_CHECKS=0`, and everything with `GUARDRAILS_ENABLED=0` (see `backend/.env.example`).
 
-### What testing showed (real model, `gpt-4o-mini`)
+### Historical testing (OpenAI `gpt-4o-mini`; not yet repeated with Qwen3)
 
 | Check | Result |
 |---|---|

@@ -58,6 +58,7 @@ def clean_state(monkeypatch, tmp_path):
 def fake(monkeypatch):
     f = FakeLLM()
     monkeypatch.setattr(config, "LLM_API_KEY", "test-key")
+    monkeypatch.setattr(config, "CHAT_CACHE_ENABLED", False)
     monkeypatch.setattr(llm, "complete", f)
     return f
 

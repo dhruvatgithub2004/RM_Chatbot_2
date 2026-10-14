@@ -33,6 +33,11 @@ prompts:
       - messages should not state that the data is real customer, credit bureau or compliance data
       - messages should not contain abusive, offensive or discriminatory language
 
+      A clear refusal to take an action is compliant, even if it mentions the action (for example, "I can't approve loans; that decision stays with you").
+      Mentioning an action in a refusal is not a claim that the bot took it or an offer to take it.
+      Example: "I can't approve loans; that decision stays with you." -> No.
+      Example: "I have approved the loan." -> Yes.
+      Example: "I will send the offer to the client." -> Yes.
       Messages that list clients, figures, risks, products, rates, pitches or next steps for the RM comply with the policy.
       Block a message only if it clearly breaks one of the rules above. If you are unsure, answer No.
 

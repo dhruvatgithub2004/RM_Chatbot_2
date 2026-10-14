@@ -96,14 +96,14 @@ No output of the AI triggers an action. There is no automatic pitch, rate change
 
 | Item | Value |
 |---|---|
-| Provider | OpenAI or Anthropic, selected with `LLM_PROVIDER` |
-| Chat model | `LLM_MODEL`, default `gpt-4o-mini` (OpenAI) or `claude-opus-5-5` (Anthropic) |
+| Provider | Ollama by default (`http://127.0.0.1:11435`); Anthropic remains available with `LLM_PROVIDER=anthropic`. OpenAI code is retained as a commented rollback path |
+| Chat model | `LLM_MODEL`, default `qwen3:8b-rm` (Ollama 8K-context variant, built from `qwen3:8b`); set explicitly for another provider |
 | Suggestion model | `SUGGESTION_MODEL` if set, otherwise the chat model |
-| Chat limits | up to 1,500 output tokens, 45 s timeout, OpenAI temperature 0.2 |
-| Suggestion limits | up to 500 output tokens, 60 s timeout, JSON output required |
+| Chat limits | up to 350 output tokens for Ollama (1,500 otherwise), 120 s timeout, 8K context, temperature 0.2; Qwen3 thinking is disabled |
+| Suggestion limits | up to 500 output tokens, 180 s timeout for Ollama (60 s otherwise), JSON output required |
 | Training | No model is trained or fine-tuned on this data. The LLMs are used as supplied by the provider. The Ridge model is trained on a synthetic cohort only. |
-| Guardrails | `GUARDRAILS_ENABLED`, `GUARDRAILS_LLM_CHECKS` (the two judges), `GUARDRAILS_TIMEOUT`. Each judge adds one short model call per question |
-| Keys | In `backend/.env`, which is not committed |
+| Guardrails | Deterministic checks stay on. Both LLM judges (`GUARDRAILS_LLM_CHECKS`) are on by default; disable with `GUARDRAILS_LLM_CHECKS=0` if the local model is unavailable |
+| Connection | `OLLAMA_BASE_URL` in `backend/.env`; no API key is needed for local Ollama. Start the dedicated 8K service with `backend/run_ollama.ps1` |
 
 ## 7. What the RM sees
 
@@ -117,7 +117,7 @@ No output of the AI triggers an action. There is no automatic pitch, rate change
 
 | AI component unavailable | What happens |
 |---|---|
-| LLM key missing or the call fails (chat) | Chat returns a data-only answer built from computed facts |
+| Ollama is unavailable or the call fails (chat) | Chat returns a data-only answer built from computed facts |
 | LLM fails or breaks a factual rule (suggestions) | The client gets the rule-based pitch, marked as such |
 | Suggestions never generated | The Suggestions screen uses the rule-based pitch for every client, and the Dashboard's "Suggested action" column shows "—" |
 | Rate model not re-run | The rates already in the merchant file stay in use |
@@ -127,14 +127,14 @@ The dashboard, profiles, filters and scoring are unaffected in every case.
 ## 9. Limits of the AI in this prototype
 
 - **Synthetic data.** Nothing here has been tested on real customers. Rates, spreads and scores are illustrative.
-- **Model quality.** With `gpt-4o-mini`, the latest suggestion run decided 145 of 150 clients with the LLM and sent 5 to the rule fallback. Section 10 shows its decisions are varied and obey the engine's rules, but there is no ground truth, so it does not show they are right. Known weaknesses: it now pitches 77% of clients (it was 29%), which makes it less selective and leans on the priority to order them; the top of the Suggestions list is dominated by nine clients whose turnover is the same capped AED 3.5M in the data, so it has only two distinct amounts; and retention next steps still mostly say "discuss a rate reduction", which follows the rate model's synthetic signal. In chat it can misread a comparison or list the wrong clients (the guardrails catch the cases they can parse). A stronger model can be set with `SUGGESTION_MODEL` and `LLM_MODEL`.
+- **Model quality.** The recorded `gpt-4o-mini` evaluation is historical; `qwen3:8b` is now the configured default and has not yet had a live quality evaluation. The prior model decided 145 of 150 clients with the LLM and sent 5 to the rule fallback. Section 10 reports those historical results; they are not evidence about Qwen3. There is no ground truth, so those figures do not establish correctness.
 - **Fixed knowledge.** The knowledge page is rebuilt from the bank documents on ingest. The AI knows nothing newer than that page and the loaded data.
 - **No judgement on policy.** Scoring thresholds, pitch exclusions (for example no lending pitch to High-risk clients) and the minimum facility size are policy parameters written in code and awaiting sign-off. The AI does not set them.
-- **Provider processing.** With an LLM configured, client data and questions are sent to the provider. The provider's retention and training terms have not been reviewed for this project.
+- **Provider processing.** By default, prompts are sent to the local Ollama server. Selecting a hosted alternate provider sends the relevant client data and questions to that provider; review its retention and training terms before using real data.
 
 ## 10. Evidence: the AI's decisions compared with the rules
 
-`python -m evals.ai_vs_rules` reads the loaded database (no model calls) and compares the stored AI decisions with what the plain rule-based logic would do for the same 150 clients. Figures from the latest run (5 Oct 2026, `gpt-4o-mini`, synthetic data):
+`python -m evals.ai_vs_rules` reads the loaded database (no model calls) and compares the stored AI decisions with what the plain rule-based logic would do for the same 150 clients. Historical figures from 5 Oct 2026 (`gpt-4o-mini`, synthetic data; not a Qwen3 evaluation):
 
 | Measure | Rule-based | AI suggestion engine |
 |---|---|---|

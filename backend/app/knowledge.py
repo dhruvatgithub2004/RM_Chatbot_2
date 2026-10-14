@@ -7,6 +7,8 @@ Run `python -m app.knowledge` to rebuild; it is also rebuilt automatically when 
 """
 from __future__ import annotations
 
+import re
+
 from . import config
 from .catalogue import render_allowed_table
 
@@ -28,7 +30,7 @@ deciding what to suggest to each client is the assistant's job, using the client
 - Volume figures: "last 30 days" is relative to the data's as-of date, not today's date. `volume_change_vs_prior_30d_pct` compares it with the 30 days before. `volume_change_6m_pct` compares the latest complete month with the first of the last six complete months.
 - `dormant_streak_days`: consecutive trailing days with POS terminals dormant (zero volume).
 - `card_mix_30d`: share of last-30-day volume on days labelled Mass / Premium / Super Premium / Debit / Business. It is a per-day label, not a split by transaction.
-- Rates: `current_rate_pct` is the client's current merchant rate; `rate_change_recommended` says whether the pricing model recommends a change. When it is false, no change is recommended and `suggested_rate_pct` must not be quoted. `rate_rationale` is the supplied explanation.
+- Rates: `current_rate_pct` is the client's current merchant rate; `rate_change_recommended` says whether the pricing model recommends a change. When it is true, the suggested rate is only ever given as a range, `suggested_rate_range_pct` (the model's estimate plus or minus 0.10 points, rounded to 0.05, illustrative): quote the range, never a single figure. When it is false, no change is recommended and no suggested rate or range may be quoted. `rate_rationale` is the supplied explanation.
 - `suggested_working_capital_limit_aed`: the bank's supplied sizing for this client. It is the ONLY supplied amount; it is the upper bound for any sized lending amount.
 - `opportunity_tier` / `opportunity_label`: supplied opportunity ranking (1 Prime, 2 Strong, 3 Moderate, 4 Low priority).
 - `products_held`: products the client already has. `ntb_candidates`: new-to-bank cross-sell candidates supplied by the bank, with rationale.
@@ -38,13 +40,41 @@ deciding what to suggest to each client is the assistant's job, using the client
 """
 
 
-def build() -> str:
+def _sections() -> dict[str, str]:
+    """The page in three parts: `core` (data dictionary and allowed products), `packages` (section 3) and `loans` (section 4)."""
     packages = PACKAGES_DOC.read_text(encoding="utf-8") if PACKAGES_DOC.exists() else ""
     loans = LOANS_DOC.read_text(encoding="utf-8") if LOANS_DOC.exists() else ""
-    return (HEADER + render_allowed_table()
-            + "\n\nRows marked NOT PITCHABLE are real bank products that cannot be offered because they need data we do not hold.\n"
-            + "\n\n## 3. Packages, charges and cards (Emirates NBD public documents)\n" + _demote(packages)
-            + "\n\n## 4. Business loans (Emirates NBD public page)\n" + _demote(loans) + "\n")
+    return dict(
+        core=(HEADER + render_allowed_table()
+              + "\n\nRows marked NOT PITCHABLE are real bank products that cannot be offered because they need data we do not hold.\n"),
+        packages="\n\n## 3. Packages, charges and cards (Emirates NBD public documents)\n" + _demote(packages),
+        loans="\n\n## 4. Business loans (Emirates NBD public page)\n" + _demote(loans) + "\n")
+
+
+def build() -> str:
+    s = _sections()
+    return s["core"] + s["packages"] + s["loans"]
+
+
+# Which questions need which part. The whole page is about 3,400 tokens, a large share of an 8K window, so a question gets only the
+# parts it needs. A question that needs none gets nothing, and the model is told to say "not available" for what is not given.
+_PRODUCTS = re.compile(r"\b(products?|smarttrade|businessonline|payroll|wps|trade finance|catalogue|catalog)\b", re.I)
+_PACKAGES = re.compile(r"\b(packages?|fees?|charges?|tariffs?|minimum balance|fall[- ]below|debit cards?|credit cards?|card fees?)\b", re.I)
+_LOANS = re.compile(r"\b(loans?|financing|finance|tenure|repay\w*|term loan|fleet|vehicle|equipment|interest)\b", re.I)
+
+
+def for_question(question: str, *, always_core: bool = False) -> str:
+    """The parts of the knowledge page a question needs. `always_core` keeps the data dictionary and allowed products (merchant chat)."""
+    parts = _sections()
+    wants_packages, wants_loans = bool(_PACKAGES.search(question)), bool(_LOANS.search(question))
+    out = []
+    if always_core or wants_packages or wants_loans or _PRODUCTS.search(question):
+        out.append(parts["core"])
+    if wants_packages:
+        out.append(parts["packages"])
+    if wants_loans:
+        out.append(parts["loans"])
+    return "".join(out)
 
 
 def _demote(md: str) -> str:

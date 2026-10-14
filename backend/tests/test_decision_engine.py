@@ -102,3 +102,26 @@ def test_dashboard_rows_carry_the_ai_decision():
         with SessionLocal() as s:
             s.query(m.ClientSuggestion).delete()
             s.commit()
+
+
+def test_opportunities_are_ranked_by_priority_and_exclude_clients_with_no_action():
+    from datetime import datetime
+    from fastapi.testclient import TestClient
+    from app.main import app
+    api = TestClient(app)
+    ids = [r[0] for r in api.get("/api/dashboard").json()["clients"] and
+           [(c["merchant_id"],) for c in api.get("/api/dashboard").json()["clients"][:4]]]
+    kinds = [("lending", 40), ("retention", 90), ("none", 99), ("cross_sell", 65)]
+    with SessionLocal() as s:
+        s.query(m.ClientSuggestion).delete()
+        for mid, (kind, pri) in zip(ids, kinds):
+            s.add(m.ClientSuggestion(merchant_id=mid, source="llm", model="t", kind=kind, why="x" * 20, priority=pri, generated_at=datetime.now()))
+        s.commit()
+    try:
+        rows = api.get("/api/dashboard?filter=opp").json()["clients"]
+        assert [r["merchant_id"] for r in rows] == [ids[1], ids[3], ids[0]]     # 90, 65, 40: the priority-99 "none" client is not shown
+        assert [r["rank"] for r in rows] == [1, 2, 3]
+    finally:
+        with SessionLocal() as s:
+            s.query(m.ClientSuggestion).delete()
+            s.commit()

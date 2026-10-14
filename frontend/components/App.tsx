@@ -74,7 +74,7 @@ export default function App() {
     <div style={{ display: "flex", height: "100vh", background: "var(--color-bg)", color: "var(--color-text)", fontFamily: "var(--font-body)", overflow: "hidden" }}>
       <div style={{ width: 230, flex: "none", borderRight: "1px solid var(--color-divider)", display: "flex", flexDirection: "column", padding: "var(--space-4)", gap: "var(--space-6)" }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20 }}>Northbridge</h2>
+          <h2 style={{ margin: 0, fontSize: 20 }}>InfoRM</h2>
           <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-accent-700)" }}>RM Co-pilot</div>
         </div>
         <div>
@@ -111,7 +111,7 @@ export default function App() {
               <Profile selectedId={selectedId} onSelect={select} onBack={() => go("dashboard")}
                        onSuggestions={() => go("suggestions")} onCopilot={() => go("copilot", "merchant")} />
             )}
-            {view === "suggestions" && <Suggestions onCopilot={openMerchantCopilot} />}
+            {view === "suggestions" && <Suggestions onCopilot={openMerchantCopilot} onProfile={openProfile} />}
             {view === "copilot" && (
               <div>
                 {copilotMode === "general" ? (

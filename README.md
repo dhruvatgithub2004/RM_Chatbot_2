@@ -25,7 +25,7 @@ npm install
 npm run dev                                                # http://localhost:3000  (proxies /api to :8000)
 ```
 
-To enable the LLM co-pilots, copy `backend/.env.example` to `backend/.env` and set `LLM_PROVIDER` and the matching key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), then restart the backend.
+The co-pilots use a local 8K-context Ollama variant built from the `qwen3:8b` weights. From the workspace root, run `ollama pull qwen3:8b` and `ollama create qwen3:8b-rm -f backend\OllamaModelfile`. In a separate terminal run `backend\run_ollama.ps1` and leave it running; it starts a dedicated Ollama endpoint on port 11435 so the desktop daemon's 32K context does not consume GPU memory. Then start the backend and frontend as shown above. The original `qwen3:8b` tag is left unchanged. To change the endpoint or model, copy `backend/.env.example` to `backend/.env` and set `OLLAMA_BASE_URL` or `LLM_MODEL`. Ollama runs locally and needs no API key.
 
 LLM suggestions can be regenerated on their own with `..env\Scripts\python -m app.suggest_llm`. The single knowledge page the LLM reads is `structured_data/rm_product_knowledge.md` (rebuild with `python -m app.knowledge`).
 

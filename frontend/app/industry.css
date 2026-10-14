@@ -284,3 +284,16 @@ textarea.input { min-height: 90px; resize: vertical; }
 .btn-primary { border-color: var(--color-accent); }
 .btn-ghost { border-color: transparent; }
 
+
+/* — dashboard: clickable opportunity boxes and client-name links — */
+.opp-card { cursor: pointer; transition: box-shadow 120ms, border-color 120ms; }
+.opp-card:hover { border-color: var(--color-accent); box-shadow: var(--shadow-md); }
+.link-plain { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.link-plain:hover { color: var(--color-accent); text-decoration: underline; }
+
+/* — suggestion review: the "Why this?" panel — */
+.review-panel {
+  display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-3); font-size: 12px; line-height: 1.45; text-align: left;
+  cursor: default; border: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+}
+.review-panel section { display: flex; flex-direction: column; gap: 2px; }

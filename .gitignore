@@ -2,6 +2,7 @@ venv/
 __pycache__/
 *.pyc
 backend/.env
+backend/.cache/
 backend/rm_copilot.db
 node_modules/
 .next/
